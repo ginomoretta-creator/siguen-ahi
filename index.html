@@ -5202,6 +5202,8 @@ function lxFrame(s,dt){
     u.mats.forEach(function(m,i){m.uniforms.uT.value+=dt;m.uniforms.uSpread.value=(i?0.15:0.45)+vac*(i?1.6:5.5);m.uniforms.uLen.value=u.len*(i?0.55:1)*(1+0.7*vac);m.uniforms.uGain.value=g*(i?1.7:1)*fl;});
     if(u.sp)u.sp.material.opacity=0.5*g*fl;});
   lxSmoke(dt);
+  /* si la máquina no da abasto durante varios segundos seguidos, se apagan las nubes, que son lo más costoso de la escena */
+  if(LX.clouds.visible&&dt>0){LX.dtAvg=(LX.dtAvg||dt)*0.96+dt*0.04;if(LX.dtAvg>0.042){LX.slowN=(LX.slowN||0)+1;if(LX.slowN>100)LX.clouds.visible=false;}else LX.slowN=0;}
   if(LX.craft&&LX.craftGoal){var cs=LX.craft.scale.x;cs+=(LX.craftGoal-cs)*Math.min(1,dt*1.5);LX.craft.scale.setScalar(cs);if(Math.abs(cs-LX.craftGoal)>0.01)lxFrameBox(false);}
   /* reloj */
   var realT=typeof steps[s.k].t==='number';
