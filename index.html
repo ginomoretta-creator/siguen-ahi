@@ -1037,6 +1037,7 @@ function pathU(m){
 }
 function step(now){var dt=last?clamp((now-last)/1000,0,0.05):0;last=now;tick(dt,now);}
 function tick(dt,now){
+  if(MG.el&&!MG.el.hidden){mgTick(dt,now);return;}
   if(EX.active){exTick(dt,now);return;}
   if(JR.active){tickJourney(dt,now);return;}
   if(renderer)applyOrbit(dt);
@@ -2109,7 +2110,9 @@ function tickJourney(dt,now){
   updateMarks();
 }
 function hudTick(s,jd){
-  var X=JR.x,ms=msOfJd(jd),d=new Date(ms);jr.querySelector('.jr-tele').hidden=!!s.surface||s.id==='hoy';
+  var X=JR.x,ms=msOfJd(jd),d=new Date(ms);jr.querySelector('.jr-tele').hidden=s.id==='hoy';
+  /* el lanzamiento usa estas mismas filas con otros rótulos: al salir de él vuelven todas */
+  ['t1','t2','t4','t5','t6','t7'].forEach(function(k){if(JE[k].parentNode.hidden)JE[k].parentNode.hidden=false;});var l1=jt('fromEarth');if(JE.t1.textContent!==l1)JE.t1.textContent=l1;
   var nd=new Date(),ds=s.id==='hoy'?jt('today').replace('{d}',nd.getDate()+' '+STR[lang].months[nd.getMonth()]+' '+nd.getFullYear()):(d.getUTCDate()+' '+STR[lang].months[d.getUTCMonth()]+' '+d.getUTCFullYear()+' · '+two(d.getUTCHours())+':'+two(d.getUTCMinutes())+' UTC');
   if(JE.date.textContent!==ds)JE.date.textContent=ds;
   var day=Math.max(1,Math.ceil((ms-JR.m.launch)/DAY)),tot=JR.tl.length?Math.max(day,Math.ceil((msOfJd(JR.segs[JR.tl[JR.tl.length-1].i].j1)-JR.m.launch)/DAY)):day,dy=s.id==='hoy'?'':jt('day').replace('{d}',fmt(day)).replace('{t}',fmt(tot));if(JE.day.textContent!==dy)JE.day.textContent=dy;
@@ -3692,13 +3695,13 @@ document.head.appendChild(st);})();
    como en un mapa: desde la Tierra se puede salir hasta ver las órbitas y volver a entrar en Marte, bajar
    sobre el lugar de una máquina y aterrizar a su lado. */
 var EX={active:false,jd:jdOf(Date.UTC(2026,10,15,12)),tgt:new THREE.Vector3(),dir:new THREE.Vector3(0.6,-0.7,0.4).normalize(),dist:150,
-  up:new THREE.Vector3(0,0,1),fly:null,keys:{},machines:[],built:false,drag:null,lastPick:null,cool:0};
+  up:new THREE.Vector3(0,0,1),fly:null,keys:{},machines:[],built:false,drag:null,sel:null,cool:0};
 var EX_BODIES=['earth','moon','mars','jupiter','eros','vesta','ceres'];
 var EX_STR={
-  es:{badge:'Hoy',title:'Siguen ahí',hint:'Rueda: acercarse hacia donde apunta el mouse · Arrastrar: girar · Clic derecho o WASD: moverse · Clic en una máquina: ir hasta ella',
+  es:{badge:'Hoy',title:'Siguen ahí',hint:'Clic en un planeta o en el Sol: elegirlo · Rueda: acercarse al elegido (o al centro de la pantalla) · Arrastrar: girar en cualquier dirección · Clic derecho o WASD: moverse · Clic en una máquina: ir hasta ella',
       go:'Ir a',back:'Volver al inicio',lede:'Cada luz es una máquina que dejamos allá afuera. Así está todo hoy.',
       scale:'Las distancias son reales. De lejos, los planetas se dibujan más grandes para que se vean; al acercarte recuperan su tamaño real.',ua:'UA',explore:'Explorar el espacio',landing:'Bajando a {n}…',here:'Acá no quedó ninguna máquina: probá en otro lugar'},
-  en:{badge:'Today',title:'Still There',hint:'Wheel: zoom toward the pointer · Drag: turn · Right-click or WASD: move · Click a machine: go to it',
+  en:{badge:'Today',title:'Still There',hint:'Click a planet or the Sun: select it · Wheel: zoom toward it (or toward the centre of the screen) · Drag: turn in any direction · Right-click or WASD: move · Click a machine: go to it',
       go:'Go to',back:'Back to start',lede:'Every light is a machine we left out there. This is where everything is today.',
       scale:'Distances are real. From far away the planets are drawn bigger so you can see them; as you get closer they shrink to their real size.',ua:'AU',explore:'Explore space',landing:'Going down to {n}…',here:'No machine was left here: try somewhere else'}};
 function xt(k){return EX_STR[lang][k];}
@@ -3785,7 +3788,6 @@ function exBuild(){
       if(X.type==='moon'||X.type==='mars'){e.body=X.type;e.site=true;}else if(X.hw==='near'){e.body='eros';e.site=true;}else{e.body=null;}
       e.el=add(EXE.labels,'button','ex-mk');e.el.type='button';add(e.el,'i','');add(e.el,'span','').textContent=m.name;
       e.el.addEventListener('click',function(ev){ev.stopPropagation();exFlyMachine(e);});
-      e.el.addEventListener('wheel',function(){EX.lastPick=e;},{passive:true});
       EX.machines.push(e);});
     /* de lejos, cada cuerpo lleva debajo la lista de sus máquinas; la de la Luna se suma a la de la Tierra cuando la Luna no se distingue */
     EX.groups={};
@@ -3862,6 +3864,8 @@ function exAlt(p){var nb=exNearest(p);return {b:nb.b,alt:_xw.copy(p).sub(nb.b.po
 var EX_MINALT=0.003; /* 3 km: más abajo solo se baja junto a una máquina */
 function exUpdateUp(){
   var nb=exNearest(EX.tgt),k=clamp((4-nb.q)/2.7,0,1);k=k*k*(3-2*k);
+  /* con el centro de la vista dentro del cuerpo (se lo mira entero, no su suelo) vale el norte del sistema solar */
+  k*=clamp((nb.q-0.3)/0.4,0,1);
   _xu.copy(EX.tgt).sub(nb.b.pos).normalize();EX.up.copy(EX_Z).lerp(_xu,k);if(EX.up.lengthSq()<1e-6)EX.up.copy(EX_Z);EX.up.normalize();
 }
 function exRender(){SP.lookAbs.copy(EX.tgt);SP.camAbs.copy(EX.tgt).addScaledVector(EX.dir,EX.dist);SP.cam.up.copy(EX.up);renderSpace();}
@@ -3872,41 +3876,60 @@ function exRayHit(x,y){
   EX_BODIES.forEach(function(k){var b=SP.B[k];if(b.on===false)return;var rr=b.R*(b.k||1),oc=_xw.copy(o).sub(b.pos),bb=oc.dot(_xr),c=oc.lengthSq()-rr*rr,h=bb*bb-c;if(h<0)return;var t=-bb-Math.sqrt(h);if(t>0&&t<bt){bt=t;best=b;}});
   return best?{b:best,p:o.clone().addScaledVector(_xr,bt)}:null;
 }
-function exZoom(f,x,y){
-  var P=null;
-  if(EX.lastPick){P=EX.lastPick.pos.clone();EX.lastPick=null;}
-  /* si el cuerpo está agrandado (de lejos), se va hacia su centro; de cerca, al punto exacto bajo el puntero */
-  else{var h=exRayHit(x,y);if(h)P=(h.b.k||1)>1.02?h.b.pos.clone():h.p;}
+/* El zoom no sigue al puntero: va hacia el cuerpo o la máquina elegidos con un clic y, si no hay ninguno, hacia el centro de la pantalla.
+   Muy cerca de un cuerpo (a menos de medio radio de altura) se acerca al punto que se está mirando, para poder bajar a la superficie. */
+function exZoom(f){
+  var P=null,S=EX.sel;
+  if(S){var c0=_xv.copy(EX.tgt).addScaledVector(EX.dir,EX.dist);if(!S.R||c0.sub(S.pos).length()>S.R*1.5)P=S.pos.clone();}
   if(!P)P=EX.tgt.clone();
   var cam=_xv.copy(EX.tgt).addScaledVector(EX.dir,EX.dist),nd=EX.dist*f;
   /* no bajar del mínimo sobre la superficie, salvo cerca de una máquina, donde se aterriza */
   var near=exMachineNear(P);
   var minD=near&&!near.site?near.X.craftM*1.6e-6:1e-6;nd=Math.max(nd,minD);nd=Math.min(nd,9e6);f=nd/EX.dist;
   var nc=P.clone().add(cam.sub(P).multiplyScalar(f)),nt=P.clone().add(EX.tgt.clone().sub(P).multiplyScalar(f));
+  /* al acercarse, el cuerpo elegido se va al centro de la pantalla: después se gira alrededor de él */
+  if(S&&f<1){nt.sub(P).multiplyScalar(Math.pow(f,1.5)).add(P);nc.copy(nt).addScaledVector(EX.dir,nd);}
   var a=exAlt(nc);if(a.alt<EX_MINALT&&!(near&&near.site)&&f<1){return;}
   EX.tgt.copy(nt);EX.dist=nd;EX.fly=null;EX.moved=true;
   /* acercarse a la Tierra con la rueda vuelve a la Tierra del inicio, mirando la misma cara */
   if(f<1&&EX.cool<=0){var be=SP.B.earth,de=nc.sub(be.pos).length();if(de<be.R*15&&de>be.R*2.4&&_xu.copy(EX.tgt).sub(be.pos).length()<be.R*1.3)exToGlobe();}
 }
 function exMachineNear(P){var best=null,bd=1e18;EX.machines.forEach(function(e){var d=_xw.copy(P).sub(e.pos).length(),lim=e.site?0.06:Math.max(0.05,e.X.craftM*2e-5);if(d<lim&&d<bd){bd=d;best=e;}});return best;}
-stage.addEventListener('wheel',function(e){if(!EX.active||overPanel(e))return;e.preventDefault();var r=stage.getBoundingClientRect();exZoom(Math.exp(e.deltaY*0.0016),e.clientX-r.left,e.clientY-r.top);},{passive:false});
-/* dos dedos: pellizcar acerca o aleja hacia el punto medio, como la rueda */
+stage.addEventListener('wheel',function(e){if(!EX.active||overPanel(e))return;e.preventDefault();var r=stage.getBoundingClientRect();exZoom(Math.exp(e.deltaY*0.0016));},{passive:false});
+/* dos dedos: pellizcar acerca o aleja, igual que la rueda */
 var EXP={};
 canvas.addEventListener('pointerdown',function(e){if(!EX.active)return;EXP[e.pointerId]={x:e.clientX,y:e.clientY};EX.moved=true;
+  EX.down=Object.keys(EXP).length===1&&e.button===0&&!e.shiftKey?{x:e.clientX,y:e.clientY}:null;
   EX.drag={x:e.clientX,y:e.clientY,pan:e.button===2||e.shiftKey};EX.fly=null;stage.classList.add('is-grabbing');try{canvas.setPointerCapture(e.pointerId);}catch(err){}});
 canvas.addEventListener('contextmenu',function(e){if(EX.active)e.preventDefault();});
 window.addEventListener('pointermove',function(e){if(!EX.active||!EX.drag)return;
   if(EXP[e.pointerId]){var ids=Object.keys(EXP);if(ids.length>=2){var a=EXP[ids[0]],b=EXP[ids[1]],d0=Math.hypot(a.x-b.x,a.y-b.y);EXP[e.pointerId]={x:e.clientX,y:e.clientY};
-    a=EXP[ids[0]];b=EXP[ids[1]];var d1=Math.hypot(a.x-b.x,a.y-b.y),r=stage.getBoundingClientRect();if(d0>4&&d1>4)exZoom(d0/d1,(a.x+b.x)/2-r.left,(a.y+b.y)/2-r.top);return;}
+    a=EXP[ids[0]];b=EXP[ids[1]];var d1=Math.hypot(a.x-b.x,a.y-b.y),r=stage.getBoundingClientRect();if(d0>4&&d1>4)exZoom(d0/d1);return;}
     EXP[e.pointerId]={x:e.clientX,y:e.clientY};}
   var dx=e.clientX-EX.drag.x,dy=e.clientY-EX.drag.y;EX.drag.x=e.clientX;EX.drag.y=e.clientY;
   if(EX.drag.pan)exPan(-dx/H,dy/H);else exRotate(-dx*0.006,-dy*0.005);});
-function exUp(e){delete EXP[e.pointerId];var ids=Object.keys(EXP);if(ids.length){EX.drag={x:EXP[ids[0]].x,y:EXP[ids[0]].y,pan:false};return;}if(EX.drag){EX.drag=null;stage.classList.remove('is-grabbing');}}
+/* clic sin arrastrar: sobre un cuerpo lo elige y lo centra, sin cambiar la distancia; en el vacío suelta la elección */
+var EX_SUN={pos:new THREE.Vector3(0,0,0),R:696,sun:true};
+function exClick(x,y){var r=stage.getBoundingClientRect(),best=null,bd=1e9;x-=r.left;y-=r.top;
+  /* se elige el cuerpo más cercano al clic en pantalla, con margen: de lejos los planetas miden pocos píxeles */
+  EX_BODIES.map(function(k){return SP.B[k];}).concat([EX_SUN]).forEach(function(b){if(!b||b.on===false)return;
+    var q=_xw.copy(b.pos).sub(SP.camAbs),d=q.length(),pr=projectRel(q,{});if(!pr.vis)return;
+    var dd=Math.hypot(pr.x-x,pr.y-y)-Math.max(pxRadius(b.R,d)*(b.k||1),0);if(dd<26&&dd<bd){bd=dd;best=b;}});
+  EX.sel=best;}
+/* aro sobre el cuerpo elegido, para saber hacia dónde va el zoom */
+var exSelEl=add(EXE.labels,'i','ex-sel');exSelEl.style.cssText='position:absolute;display:none;border:1.5px solid var(--accent);border-radius:50%;pointer-events:none;box-shadow:0 0 10px rgba(255,200,120,.5)';
+var _exLabels0=exLabels;exLabels=function(cam){_exLabels0(cam);var S=EX.sel;if(!S||!EX.active){exSelEl.style.display='none';return;}
+  var q=_xw.copy(S.pos).sub(cam),d=q.length(),pr=projectRel(q,{});if(!pr.vis){exSelEl.style.display='none';return;}
+  var rr=Math.max(11,(S.R?pxRadius(S.R,d)*(S.k||1):0)+6);if(rr>Math.max(W,H)){exSelEl.style.display='none';return;}
+  exSelEl.style.display='block';exSelEl.style.left=(pr.x-rr)+'px';exSelEl.style.top=(pr.y-rr)+'px';exSelEl.style.width=exSelEl.style.height=(rr*2)+'px';};
+function exUp(e){var dn=EX.down;EX.down=null;if(dn&&EX.active&&EXP[e.pointerId]&&e.type==='pointerup'&&Math.hypot(e.clientX-dn.x,e.clientY-dn.y)<6)exClick(e.clientX,e.clientY);
+  delete EXP[e.pointerId];var ids=Object.keys(EXP);if(ids.length){EX.drag={x:EXP[ids[0]].x,y:EXP[ids[0]].y,pan:false};return;}if(EX.drag){EX.drag=null;stage.classList.remove('is-grabbing');}}
 window.addEventListener('pointerup',exUp);window.addEventListener('pointercancel',exUp);
 function exRotate(yaw,pitch){
   _xq.setFromAxisAngle(EX.up,yaw);EX.dir.applyQuaternion(_xq);
   var right=_xv.crossVectors(EX.up,EX.dir).normalize();if(right.lengthSq()<1e-6)return;
-  var nd=EX.dir.clone().applyQuaternion(_xq.setFromAxisAngle(right,pitch)),ang=Math.acos(clamp(nd.dot(EX.up),-1,1)),nb=exNearest(EX.tgt),lim=nb.q<1.5?1.45:3.05;
+  var nd=EX.dir.clone().applyQuaternion(_xq.setFromAxisAngle(right,pitch)),ang=Math.acos(clamp(nd.dot(EX.up),-1,1)),nb=exNearest(EX.tgt),lim=nb.q<1.5&&nb.q>0.7?1.45:3.08;
+  /* el tope bajo solo vale parado sobre la superficie (para no mirar desde abajo del suelo); alrededor de un cuerpo se gira por todos lados */
   if(ang>0.06&&ang<lim)EX.dir.copy(nd).normalize();
 }
 function exPan(px,py){
@@ -3925,10 +3948,12 @@ function exFlyTo(tgt,dir,dist,onEnd){
   EX.fly={t:0,T:clamp(1.8+0.18*Math.abs(Math.log(dist/EX.dist))+0.35*hump,2.2,7),t0:EX.tgt.clone(),t1:tgt.clone(),d0:EX.dir.clone(),d1:dir.clone().normalize(),l0:Math.log(EX.dist),l1:Math.log(dist),hump:hump,onEnd:onEnd};
 }
 function exFlyBody(k){
+  EX.sel=k==='sun'?EX_SUN:SP.B[k];
   if(k==='sun'){exFlyTo(new THREE.Vector3(0,0,0),_xv.set(0.3,-0.8,0.5),9e5,null);return;}
   var b=SP.B[k];exFlyTo(b.pos,_xv.copy(b.pos).negate().normalize().add(_xw.set(0,0,0.35)).applyAxisAngle(EX_Z,0.5),b.R*(k==='earth'?3.2:4),null);
 }
 function exFlyMachine(e){
+  EX.sel=e;
   if(e.site){var b=SP.B[e.body],t=_xw.crossVectors(e.n,EX_Z).normalize(),d=e.n.clone().multiplyScalar(0.85).addScaledVector(t,0.5).normalize();
     exFlyTo(e.pos,d,e.body==='eros'?0.02:0.012,function(){exArrive(e);});}
   else{exFlyTo(e.pos,_xv.copy(e.pos).negate().normalize().add(_xw.set(0,0,0.4)).applyAxisAngle(EX_Z,0.7),e.X.craftM*5e-6,function(){exArrive(e);});}
@@ -5281,7 +5306,12 @@ function lxTexts(){
   JE.cap.textContent='';
   JE.day.textContent=fmtDate(m.launch,lang)+(LX.seq.pad?' · '+LX.seq.pad:'');
   JE.note.textContent=lxt('illus')+(LX.skyV?' '+lxt('sky'):'');
-  var tele=jr.querySelector('.jr-tele'),has=typeof st.alt_km==='number'||typeof st.speed_kmh==='number';tele.hidden=!has;
+  var tele=jr.querySelector('.jr-tele'),has=true;tele.hidden=false;
+  /* además de la altura y la velocidad del paso (cuando NASA las publicó): distancia al Sol en el minuto del despegue y la etapa */
+  var sk=typeof LAUNCH_SKY!=='undefined'&&LAUNCH_SKY&&LAUNCH_SKY[m.id],sd=sk&&sk.sun?Math.sqrt(sk.sun[0]*sk.sun[0]+sk.sun[1]*sk.sun[1]+sk.sun[2]*sk.sun[2]):0;
+  JE.t4.textContent=jt('fromSun');JE.v4.innerHTML=sd?fmt(Math.round(sd))+'<em>'+lxt('km')+'</em>':'';JE.t4.parentNode.hidden=!sd;
+  JE.t6.textContent=jt('phase');JE.v6.textContent=(jt('chap').lanzamiento||'')+' · '+(LX.k+1)+' / '+LX.seq.steps.length;JE.t6.parentNode.hidden=false;
+  JE.t5.parentNode.hidden=true;JE.t7.parentNode.hidden=true;
   if(has){JE.t1.textContent=lxt('alt');JE.v1.innerHTML=typeof st.alt_km==='number'?fmt(st.alt_km)+'<em>'+lxt('km')+'</em>':'';JE.t1.parentNode.hidden=typeof st.alt_km!=='number';
     JE.t2.textContent=lxt('spd');JE.v2.innerHTML=typeof st.speed_kmh==='number'?fmt(st.speed_kmh)+'<em>'+lxt('kmh')+'</em>':'';JE.t2.parentNode.hidden=typeof st.speed_kmh!=='number';JE.t3.parentNode.hidden=true;}
   lxCardFill(LX.lastNew||null);
@@ -5417,18 +5447,324 @@ var LAUNCH_SEQ={"surveyor1":{"rocket":"atlasCentaur","site":"cape","pad":"LC-36A
    Las misiones son inventadas. La frase «real» de cada evento es una que ya está en el sitio. */
 var MG_DATA={"missions":[{"id":"moon","name":{"es":"Farol 1","en":"Farol 1"},"kind":{"es":"Módulo de aterrizaje lunar","en":"Moon lander"},"goal":{"es":"Posarse en la Luna y estudiar su suelo con un taladro.","en":"Land on the Moon and study its soil with a drill."}},{"id":"mars","name":{"es":"Huella 1","en":"Huella 1"},"kind":{"es":"Rover marciano","en":"Mars rover"},"goal":{"es":"Recorrer un cráter de Marte y buscar señales de agua antigua.","en":"Drive across a crater on Mars and look for signs of ancient water."}},{"id":"asteroid","name":{"es":"Brújula 1","en":"Brújula 1"},"kind":{"es":"Sonda a un asteroide","en":"Asteroid probe"},"goal":{"es":"Entrar en órbita de un asteroide y hacer su mapa.","en":"Go into orbit around an asteroid and map it."}}],"events":[{"key":"storm","phase":"launch","for":["moon","mars","asteroid"],"sys":"weather","day":{"es":"Día 1 · Despegue","en":"Day 1 · Launch"},"alert":{"es":"ALERTA: RAYOS A MENOS DE 10 KM DE LA PLATAFORMA DE DESPEGUE","en":"WARNING: LIGHTNING WITHIN 10 KM OF THE LAUNCH PAD"},"story":{"es":"Faltan cuatro minutos para el despegue de {name}. El radar muestra una tormenta eléctrica que se acerca a la plataforma.","en":"{name} lifts off in four minutes. The radar shows a thunderstorm moving toward the pad."},"ask":{"es":"¿Qué le decís a la sala de control?","en":"What do you tell the control room?"},"options":[{"t":{"es":"Despegar ya, antes de que llegue la tormenta","en":"Launch now, before the storm arrives"},"ok":false,"result":{"es":"Un cohete que sube puede atraer un rayo y dañar sus computadoras. La sala de control no acepta el riesgo.","en":"A climbing rocket can attract a lightning strike that damages its computers. The control room will not take the risk."}},{"t":{"es":"Frenar la cuenta regresiva y esperar a que pase la tormenta","en":"Pause the countdown and wait for the storm to pass"},"ok":true,"result":{"es":"La cuenta se frena. Una hora después el cielo está despejado y {name} despega sin problemas.","en":"The countdown is paused. An hour later the sky is clear and {name} lifts off without trouble."}},{"t":{"es":"Cancelar la misión","en":"Cancel the mission"},"ok":false,"result":{"es":"No hace falta tanto. Una tormenta pasa, y el cohete puede esperar en la plataforma.","en":"There is no need to go that far. A storm passes, and the rocket can wait on the pad."}}],"why":{"es":"Un cohete y su estela conducen la electricidad. Si hay rayos cerca, se espera: perder una hora cuesta mucho menos que perder la nave.","en":"A rocket and its trail conduct electricity. With lightning nearby, you wait: losing an hour costs far less than losing the spacecraft."},"real":null},{"key":"attitude","phase":"cruise","for":["moon","mars","asteroid"],"sys":"attitude","day":{"es":"Día 2 · Viaje","en":"Day 2 · Cruise"},"alert":{"es":"ALERTA: FALLA ELÉCTRICA. CONTROL DE ORIENTACIÓN APAGADO","en":"WARNING: ELECTRICAL FAILURE. ATTITUDE CONTROL OFFLINE"},"story":{"es":"{name} ya no puede controlar su orientación, es decir, hacia dónde apunta. Gira despacio. Sus paneles solares se están alejando del Sol y la batería se está descargando.","en":"{name} can no longer control its attitude, which is the way it points. It is slowly turning. Its solar panels are drifting away from the Sun and the battery is running down."},"ask":{"es":"¿Qué hacés primero?","en":"What do you do first?"},"options":[{"t":{"es":"Encender el motor principal para frenar el giro","en":"Fire the main engine to stop the turning"},"ok":false,"result":{"es":"El motor principal empuja, no orienta. Encenderlo sin saber hacia dónde apunta la nave la sacaría de su camino.","en":"The main engine pushes. It does not turn the spacecraft. Firing it without knowing which way the spacecraft is pointing would knock it off course."}},{"t":{"es":"Seguir con las mediciones y revisarlo después","en":"Keep taking measurements and look at it later"},"ok":false,"result":{"es":"Sin Sol en los paneles la batería se agota en pocas horas. Después puede ser tarde.","en":"With no Sun on the panels the battery runs flat in a few hours. Later may be too late."}},{"t":{"es":"Pasar a modo seguro con la unidad de repuesto y apuntar los paneles al Sol","en":"Go to safe mode on the backup unit and point the panels at the Sun"},"ok":true,"result":{"es":"La unidad de repuesto toma el control, los paneles vuelven a mirar al Sol y la batería se recupera. Ahora hay tiempo para buscar la falla.","en":"The backup unit takes over, the panels face the Sun again and the battery recovers. Now there is time to find the fault."}}],"why":{"es":"Primero la energía. En modo seguro la nave apaga lo que no es esencial, apunta al Sol y espera órdenes.","en":"Power comes first. In safe mode the spacecraft switches off what is not essential, points at the Sun and waits for commands."},"real":null},{"key":"course","phase":"cruise","for":["moon","mars","asteroid"],"sys":"nav","day":{"es":"Día 3 · Viaje","en":"Day 3 · Cruise"},"alert":{"es":"ALERTA: FUERA DE RUMBO. EL ERROR CRECE CADA DÍA","en":"WARNING: OFF COURSE. THE ERROR GROWS EVERY DAY"},"story":{"es":"El seguimiento desde la Tierra muestra que {name} está un poco fuera del camino previsto. Hoy la diferencia es chica, pero crece cada día.","en":"Tracking from Earth shows {name} is slightly off its planned path. The gap is small today, but it gets bigger every day."},"ask":{"es":"¿Cuándo corregís el rumbo?","en":"When do you correct the course?"},"options":[{"t":{"es":"Esperar a la llegada y corregir todo junto","en":"Wait until arrival and fix it all at once"},"ok":false,"result":{"es":"Para entonces la diferencia es enorme. Corregirla tarde gasta mucho más combustible del que sobra en los tanques.","en":"By then the gap is huge. Fixing it late takes far more fuel than the tanks have to spare."}},{"t":{"es":"Hacer ahora un encendido corto del motor","en":"Do a short engine burn now"},"ok":true,"result":{"es":"Unos segundos de empuje devuelven a {name} a su camino. Gasta muy poco combustible.","en":"A few seconds of thrust put {name} back on its path. It costs very little fuel."}},{"t":{"es":"Hacer un encendido muy largo, por las dudas","en":"Do one very long burn, to be extra safe"},"ok":false,"result":{"es":"Demasiado empuje desvía la nave hacia el otro lado y gasta combustible que va a necesitar después.","en":"Too big a push sends the spacecraft off course the other way and wastes fuel it will need later."}}],"why":{"es":"Un empujón chico dado temprano cambia mucho el punto de llegada. La misma corrección más tarde necesita un empujón mucho más grande.","en":"A small push early on makes a big difference to where you end up. The same fix later needs a much bigger push."},"real":null},{"key":"boulders","phase":"arrival","for":["moon","mars"],"sys":"nav","day":{"es":"Día de la llegada","en":"Arrival day"},"alert":{"es":"ALERTA: ROCAS GRANDES EN EL LUGAR DE ATERRIZAJE","en":"WARNING: BIG ROCKS AT THE LANDING SPOT"},"story":{"es":"{name} está por bajar con su motor, sin ayuda desde la Tierra. Fotos nuevas tomadas desde la órbita muestran que el lugar previsto está lleno de rocas del tamaño de un auto. Su mapa marca un lugar plano de reserva a 300 m.","en":"{name} is about to come down with its engine firing, flying itself. New photos from orbit show the planned spot is covered with rocks as big as cars. Its map marks a flat backup spot 300 m away."},"ask":{"es":"¿Qué le decís que haga?","en":"What do you tell it to do?"},"options":[{"t":{"es":"Aterrizar en el lugar previsto, entre las rocas","en":"Land on the planned spot, among the rocks"},"ok":false,"result":{"es":"Aterrizar sobre una roca puede volcar la nave. El equipo rechaza el plan.","en":"Landing on a rock can tip the spacecraft over. The team rejects the plan."}},{"t":{"es":"Apagar el motor antes de tiempo para bajar más rápido","en":"Cut the engine early to get down faster"},"ok":false,"result":{"es":"Sin el motor caería y golpearía el suelo demasiado fuerte. El motor sigue encendido.","en":"Without the engine it would fall and hit the ground far too hard. The engine stays on."}},{"t":{"es":"Aterrizar en el lugar plano de reserva","en":"Land on the flat backup spot"},"ok":true,"result":{"es":"{name} se corre de costado, gasta un poco más de combustible y se posa en terreno plano.","en":"{name} slides sideways, uses a little extra fuel and touches down on flat ground."}}],"why":{"es":"Una nave que aterriza tiene que quedar parada y derecha. Por eso los equipos eligen un lugar de reserva de antemano y llevan combustible para llegar.","en":"A spacecraft that lands has to end up upright and level. That is why teams choose a backup spot ahead of time and carry fuel to reach it."},"real":null},{"key":"burn","phase":"arrival","for":["asteroid"],"sys":"engine","day":{"es":"Día de la llegada","en":"Arrival day"},"alert":{"es":"ALERTA: EL FRENADO SE CORTÓ ANTES DE TIEMPO","en":"WARNING: BRAKING BURN STOPPED EARLY"},"story":{"es":"Para entrar en órbita, {name} tiene que frenar con su motor durante varios minutos. El motor se apagó solo a los pocos segundos. El asteroide se acerca y nadie sabe por qué se apagó el motor.","en":"To go into orbit, {name} has to brake with its engine for several minutes. The engine shut itself down after a few seconds. The asteroid is getting closer and nobody knows why the engine stopped."},"ask":{"es":"¿Cuál es el plan?","en":"What is the plan?"},"options":[{"t":{"es":"Volver a encender el motor ya, una y otra vez","en":"Restart the engine again and again, right now"},"ok":false,"result":{"es":"Encender un motor sin saber por qué se apagó puede romperlo del todo o gastar el combustible. La sala de control dice que no.","en":"Firing an engine without knowing why it stopped can break it for good or waste the fuel. The control room says no."}},{"t":{"es":"Pasar de largo, buscar la causa y volver para un segundo intento","en":"Fly past, find the cause and come back for a second try"},"ok":true,"result":{"es":"{name} pasa de largo. El equipo encuentra la causa y calcula una ruta nueva. {name} entra en órbita en el paso siguiente, meses después.","en":"{name} flies past the asteroid. The team finds the cause and plans a new route. {name} reaches orbit on the next pass, months later."}},{"t":{"es":"Dar por terminada la misión","en":"End the mission here"},"ok":false,"result":{"es":"La nave está sana y todavía tiene combustible. Abandonar ahora sería tirar años de trabajo.","en":"The spacecraft is healthy and still has fuel. Giving up now would throw away years of work."}}],"why":{"es":"Primero hay que saber qué falló y después probar de nuevo. En el espacio muchas veces hay una segunda oportunidad si se cuida el combustible.","en":"First find out what failed, then try again. In space there is often a second chance if you look after your fuel."},"real":null},{"key":"wheel","phase":"ops","for":["mars"],"sys":"wheels","day":{"es":"Día 90 en Marte","en":"Day 90 on Mars"},"alert":{"es":"ALERTA: RUEDA DELANTERA TRABADA. NO GIRA","en":"WARNING: FRONT WHEEL JAMMED. IT WILL NOT TURN"},"story":{"es":"Una de las seis ruedas de {name} dejó de girar. Las otras cinco funcionan. El rover está a mitad de camino de una roca que el equipo científico quiere estudiar.","en":"One of the six wheels of {name} has stopped turning. The other five work. The rover is halfway to a rock the scientists want to study."},"ask":{"es":"¿Cómo sigue?","en":"How does it keep going?"},"options":[{"t":{"es":"Andar marcha atrás, despacio, arrastrando la rueda trabada","en":"Drive backwards slowly, dragging the jammed wheel"},"ok":true,"result":{"es":"Funciona. {name} avanza más lento y deja un surco en el suelo, pero llega a la roca.","en":"It works. {name} moves slower and leaves a groove in the soil, but it reaches the rock."}},{"t":{"es":"Darles toda la potencia a las seis ruedas","en":"Give all six wheels full power"},"ok":false,"result":{"es":"Forzar una rueda trabada puede quemar su motor, y las otras ruedas se entierran en el suelo.","en":"Forcing a jammed wheel can burn out its motor, and the other wheels dig into the soil."}},{"t":{"es":"Estacionarse acá por el resto de la misión","en":"Park here for the rest of the mission"},"ok":false,"result":{"es":"Un rover con cinco ruedas sanas puede seguir explorando. Parar sería desaprovecharlas.","en":"A rover with five good wheels can keep exploring. Stopping would waste them."}}],"why":{"es":"Arrastrar una rueda muerta por detrás es más fácil que empujarla por delante, donde se clava. Con cinco ruedas alcanza para andar.","en":"Pulling a dead wheel behind is easier than pushing it in front, where it digs in. Five wheels are enough to drive."},"real":{"id":"spirit","es":"Se me trabó una rueda. Arrastrándola, destapé una pista de agua.","en":"One of my wheels jammed. Dragging it, I uncovered a clue about water.","file":"src/js/69-home-data.js"}},{"key":"night","phase":"ops","for":["moon"],"sys":"thermal","day":{"es":"Día 12 en la Luna","en":"Day 12 on the Moon"},"alert":{"es":"ALERTA: LA NOCHE LUNAR EMPIEZA EN DOS DÍAS","en":"WARNING: LUNAR NIGHT STARTS IN TWO DAYS"},"story":{"es":"La noche en la Luna dura unos catorce días de la Tierra. Sin luz del Sol los paneles no dan nada, y el suelo se enfría muy por debajo de cero.","en":"Night on the Moon lasts about fourteen Earth days. With no sunlight the solar panels make no power, and the ground cools to far below freezing."},"ask":{"es":"¿Cómo pasa la noche {name}?","en":"How does {name} get through the night?"},"options":[{"t":{"es":"Dejar todos los instrumentos encendidos","en":"Keep every instrument running"},"ok":false,"result":{"es":"La batería se vaciaría en horas y la electrónica se congelaría. El plan se rechaza.","en":"The battery would be empty in hours and the electronics would freeze. The plan is rejected."}},{"t":{"es":"Cargar la batería, apagar todo menos los calefactores y dormir","en":"Charge the battery, switch off everything except the heaters and sleep"},"ok":true,"result":{"es":"{name} duerme durante la oscuridad. Cuando sale el Sol, los paneles vuelven a dar energía y {name} llama a casa.","en":"{name} sleeps through the dark. When the Sun rises, the panels make power again and {name} calls home."}},{"t":{"es":"Encender el motor y mudarse a un lugar con Sol","en":"Fire the engine and move to a sunny place"},"ok":false,"result":{"es":"{name} gastó su combustible al aterrizar y no puede volver a volar. Y la noche cubre la mitad de la Luna, no solo este lugar.","en":"{name} used up its fuel to land and cannot fly again. And the night covers half of the Moon, not just this spot."}}],"why":{"es":"Sin Sol, la única energía es la que guarda la batería. Usarla solo para no congelarse es la manera de llegar al próximo amanecer.","en":"With no Sun, the only energy is what the battery holds. Using it just to keep warm is how a lander lives to see the next sunrise."},"real":{"id":"phoenix","es":"Su última señal fue el 2 de noviembre de 2008, al llegar el invierno.","en":"Its last signal came on 2 November 2008, as winter arrived.","file":"src/js/40-journey.js"}},{"key":"fuel","phase":"extended","for":["asteroid"],"sys":"attitude","day":{"es":"Segundo año en órbita","en":"Second year in orbit"},"alert":{"es":"ALERTA: QUEDA MUY POCO COMBUSTIBLE PARA ORIENTARSE","en":"WARNING: ALMOST NO FUEL LEFT TO POINT THE SPACECRAFT"},"story":{"es":"{name} usa pequeños propulsores para girar su antena hacia la Tierra. A esos propulsores casi no les queda combustible. A bordo quedan guardadas cientos de fotos del asteroide.","en":"{name} uses small thrusters to turn its antenna toward Earth. Their fuel is nearly gone. Hundreds of photos of the asteroid are still stored on board."},"ask":{"es":"¿En qué gastás el último combustible?","en":"What do you spend the last fuel on?"},"options":[{"t":{"es":"Sacar todas las fotos nuevas que se pueda","en":"Take as many new photos as possible"},"ok":false,"result":{"es":"Las fotos que no llegan a la Tierra se pierden. Cuando se acabe el combustible, la antena ya no podrá apuntar a casa.","en":"Photos that never reach Earth are lost. When the fuel runs out, the antenna can no longer be pointed home."}},{"t":{"es":"Acelerar para terminar el mapa antes","en":"Speed up to finish the map sooner"},"ok":false,"result":{"es":"Ir más rápido cambiaría la órbita, no terminaría antes el mapa. Y gastaría el combustible que necesita la antena.","en":"Going faster would change the orbit, not finish the map sooner. And it would burn the fuel the antenna needs."}},{"t":{"es":"Apuntar la antena a la Tierra y enviar todo","en":"Point the antenna at Earth and send everything home"},"ok":true,"result":{"es":"Todas las fotos guardadas llegan a la Tierra antes de que se acabe el combustible. El mapa del asteroide queda completo.","en":"Every stored photo reaches Earth before the fuel runs out. The map of the asteroid is complete."}}],"why":{"es":"Los datos solo valen cuando están en la Tierra. Si una nave está por perder la orientación, lo primero es enviar lo que ya tiene.","en":"Data only counts once it is on Earth. When a spacecraft is about to lose control of where it points, the first job is to send home what it already has."},"real":{"id":"dawn","es":"Se quedó sin combustible para orientarse el 31 de octubre de 2018.","en":"On 31 October 2018 it ran out of the fuel it used to point itself.","file":"src/js/40-journey.js"}},{"key":"dust","phase":"extended","for":["mars"],"sys":"power","day":{"es":"Muchos meses después","en":"Many months later"},"alert":{"es":"ALERTA: BAJA LA ENERGÍA. POLVO SOBRE LOS PANELES","en":"WARNING: POWER DROPPING. DUST ON THE SOLAR PANELS"},"story":{"es":"Una capa de polvo se fue juntando sobre los paneles solares de {name}. Cada día producen un poco menos de electricidad, y la batería ya no llega a llenarse.","en":"A layer of dust has settled on the solar panels of {name}. Every day they make a little less electricity, and the battery no longer fills up."},"ask":{"es":"¿Cómo hacés rendir la energía?","en":"How do you make the power last?"},"options":[{"t":{"es":"Dejar todo encendido y esperar que el viento ayude","en":"Leave everything on and hope the wind helps"},"ok":false,"result":{"es":"La batería se agotaría antes de que llegue algún viento. Con la batería agotada se apagan los calefactores, y el frío puede romper la electrónica para siempre.","en":"The battery would run flat before any wind came. With a flat battery the heaters stop, and the cold can break the electronics for good."}},{"t":{"es":"Apagar lo que no es esencial y hacer menos cada día","en":"Switch off what is not essential and do less each day"},"ok":true,"result":{"es":"{name} trabaja menos horas y mantiene la batería cargada. Semanas después una ráfaga de viento limpia parte de los paneles.","en":"{name} works fewer hours and keeps its battery charged. Weeks later a gust of wind cleans part of the panels."}},{"t":{"es":"Andar más rápido para terminar antes de quedarse sin energía","en":"Drive faster to finish before the power runs out"},"ok":false,"result":{"es":"Andar es lo que más energía gasta. Ir más rápido vacía la batería antes.","en":"Driving is what uses the most power. Going faster empties the battery sooner."}}],"why":{"es":"Cuando entra menos energía, se gasta menos. Un rover que ahorra puede esperar días mejores.","en":"When less energy comes in, you spend less. A rover that saves power can wait for better days."},"real":{"id":"insight","es":"El polvo sobre sus paneles solares fue dejando sin energía a sus baterías.","en":"Dust built up on its solar panels until its batteries ran out of power.","file":"src/js/47-extra-data.js"}},{"key":"upload","phase":"ops","for":["moon","mars","asteroid"],"sys":"software","day":{"es":"Meses después","en":"Months later"},"alert":{"es":"ALERTA: ACTUALIZACIÓN DE PROGRAMA SIN PROBAR","en":"WARNING: SOFTWARE UPDATE NOT TESTED"},"story":{"es":"Hay una actualización lista para enviar a {name}. Nadie la probó todavía en la copia de la nave que está en la Tierra.","en":"An update is ready to send to {name}. Nobody has tested it yet on the copy of the spacecraft kept on Earth."},"ask":{"es":"¿Qué hacés con la actualización?","en":"What do you do with the update?"},"options":[{"t":{"es":"Probarla primero en la copia que está en la Tierra","en":"Test it first on the copy kept on Earth"},"ok":true,"result":{"es":"La prueba encuentra un error que habría apagado la antena. Se corrige y la actualización llega bien.","en":"The test finds a mistake that would have switched off the antenna. It gets fixed and the update arrives safely."}},{"t":{"es":"Enviarla ya para ahorrar tiempo","en":"Send it now to save time"},"ok":false,"result":{"es":"Una orden con un error puede dejar a la nave sin contacto, y nadie puede ir a arreglarla. El equipo frena el envío.","en":"A command with a mistake can leave the spacecraft out of contact, and nobody can go and fix it. The team stops the upload."}},{"t":{"es":"No actualizar nunca más","en":"Never update again"},"ok":false,"result":{"es":"Las actualizaciones arreglan problemas y le enseñan cosas nuevas a la nave. Lo que hace falta es probarlas.","en":"Updates fix problems and teach the spacecraft new things. What they need is testing."}}],"why":{"es":"A una nave lejana no se la puede reiniciar a mano. Por eso cada actualización se prueba antes en una copia en la Tierra.","en":"A faraway spacecraft cannot be restarted by hand. That is why every update is tested first on a copy on Earth."},"real":{"id":"viking1","es":"Una orden equivocada enviada desde la Tierra cortó la comunicación.","en":"A faulty command sent from Earth cut off communication.","file":"src/js/47-extra-data.js"}}]};
 
+/* ---------- juego: la escena 3D ----------
+   La nave de la misión inventada, dibujada con formas simples, en cinco lugares: la plataforma, el viaje, la llegada,
+   el suelo y la órbita del asteroide. Todo es ilustrativo: ni los tamaños ni las distancias son reales.
+   Cada alerta, cada arreglo y cada respuesta equivocada tiene su animación escrita a mano (MGS_ALERT, MGS_FIX, MGS_FAULT):
+   son funciones que, cuadro a cuadro, parten de la pose normal de la etapa y la cambian según el tiempo.
+   Tiene su propio lienzo y su propio renderer, dentro de la pantalla del juego; el cuadro lo marca tick() (ver tools/build.py).
+   API: mgsOpen(host), mgsClose(), mgsSetup(id), mgsGo(phase), mgsAlert(key,sys), mgsFix(key,cb), mgsFault(key,k,cb), mgsCalm(). */
+var MGS={on:false,ready:false,cv:null,gl:null,scene:null,cam:null,id:null,phase:'',kind:'',t:0,mode:'calm',mt:0,key:'',k:0,cb:null,dur:0,fired:{},sys:null,
+  parts:{},mats:[],lamps:[],cam0:{az:0.6,el:0.16,dist:14,x:0,y:0,z:0},camT:{az:0.6,el:0.16,dist:14,x:0,y:0,z:0},mark:{x:0,y:0,vis:false},hooks:{},P:null,w:0,h:0};
+function mgsR(t,a,b){return clamp((t-a)/(b-a),0,1);}
+function mgsE(x){return x*x*(3-2*x);}
+/* three r128 no convierte los colores: se pasan a lineal a mano, porque la salida es sRGB */
+function mgsCol(c){return new THREE.Color(c).convertSRGBToLinear();}
+function mgsRod(p,m,r,x0,y0,z0,x1,y1,z1){var a=new THREE.Vector3(x0,y0,z0),b=new THREE.Vector3(x1,y1,z1),o=new THREE.Mesh(new THREE.CylinderGeometry(r,r,a.distanceTo(b),8),m);
+  o.position.copy(a).add(b).multiplyScalar(0.5);o.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),b.sub(a).normalize());p.add(o);return o;}
+function mgsMat(c,rough,metal,flat){var m=new THREE.MeshStandardMaterial({color:mgsCol(c),roughness:rough==null?0.7:rough,metalness:metal||0,flatShading:!!flat});m.userData.base=mgsCol(c);MGS.mats.push(m);return m;}
+function mgsMesh(g,m,p,x,y,z){var o=new THREE.Mesh(g,m);o.position.set(x||0,y||0,z||0);p.add(o);return o;}
+function mgsLamp(p,x,y,z,c){var m=new THREE.MeshBasicMaterial({color:mgsCol(c||0xffd08a),fog:false});m.userData.base=mgsCol(c||0xffd08a);MGS.lamps.push(m);return mgsMesh(new THREE.SphereGeometry(0.07,10,8),m,p,x,y,z);}
+function mgsFlame(p,len,rad){var g=new THREE.Group(),c=new THREE.ConeGeometry(rad,len,18,1,true);c.translate(0,-len/2,0);
+  g.add(new THREE.Mesh(c,new THREE.MeshBasicMaterial({color:0xff7a1c,toneMapped:false,fog:false,transparent:true,opacity:0.55,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})));
+  var c2=new THREE.ConeGeometry(rad*0.5,len*0.6,14,1,true);c2.translate(0,-len*0.3,0);
+  g.add(new THREE.Mesh(c2,new THREE.MeshBasicMaterial({color:0xffe9a8,toneMapped:false,fog:false,transparent:true,opacity:0.8,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide})));
+  g.visible=false;p.add(g);return g;}
+function mgsDish(p,x,y,z,r){var piv=new THREE.Group();piv.position.set(x,y,z);p.add(piv);
+  var d=new THREE.Mesh(new THREE.SphereGeometry(r,20,10,0,Math.PI*2,0,0.95),mgsMat(0xe8ecf2,0.5,0.1));d.material.side=THREE.DoubleSide;d.rotation.x=Math.PI;d.position.y=r*0.95;piv.add(d);
+  mgsMesh(new THREE.CylinderGeometry(0.03,0.03,r*0.8,6),mgsMat(0x9aa3ad),piv,0,r*0.5,0);return piv;}
+function mgsPanel(p,w,d,x,y,z){var m=mgsMat(0x1f3f8f,0.35,0.5);m.emissive=mgsCol(0x16307a);var o=mgsMesh(new THREE.BoxGeometry(w,0.06,d),m,p,x,y,z);
+  for(var i=1;i<4;i++)mgsMesh(new THREE.BoxGeometry(0.03,0.07,d),mgsMat(0xc9d2e0,0.4,0.6),o,-w/2+w*i/4,0,0);return o;}
+/* las tres naves; cada una deja en `parts` las piezas que una alerta puede señalar */
+function mgsCraft(id){
+  var g=new THREE.Group(),P={},gold=mgsMat(0xc99a3a,0.45,0.75),grey=mgsMat(0xb9c0c9,0.6,0.3),dark=mgsMat(0x2a2f38,0.7,0.2),i,a;
+  if(id==='asteroid'){
+    P.body=mgsMesh(new THREE.BoxGeometry(1.5,1.5,2.0),gold,g);
+    P.panels=[mgsPanel(g,4.4,1.5,-3.1,0,0),mgsPanel(g,4.4,1.5,3.1,0,0)];mgsMesh(new THREE.CylinderGeometry(0.05,0.05,6.3,6),grey,g).rotation.z=Math.PI/2;
+    P.dish=mgsDish(g,0,0.75,0.2,0.85);P.engine=mgsMesh(new THREE.CylinderGeometry(0.22,0.42,0.6,16,1,true),dark,g,0,0,-1.3);P.engine.rotation.x=Math.PI/2;P.engine.material.side=THREE.DoubleSide;
+    P.flame=mgsFlame(g,3.2,0.4);P.flame.position.set(0,0,-1.6);P.flame.rotation.x=Math.PI/2;
+    mgsLamp(g,0.5,0.5,1.02);mgsLamp(g,-0.5,-0.5,1.02,0x9fe0ff);
+  }else{
+    /* módulo de aterrizaje: lo usan Farol 1 y, como plataforma, Huella 1 */
+    P.body=mgsMesh(new THREE.CylinderGeometry(1.25,1.25,0.8,8),gold,g,0,1.25,0);
+    for(i=0;i<4;i++){a=Math.PI/4+i*Math.PI/2;var cx=Math.cos(a),cz=Math.sin(a);mgsRod(g,grey,0.055,cx*1.15,1.45,cz*1.15,cx*2.15,0.08,cz*2.15);mgsRod(g,grey,0.04,cx*1.15,0.9,cz*1.15,cx*1.9,0.4,cz*1.9);
+      mgsMesh(new THREE.CylinderGeometry(0.28,0.28,0.07,12),grey,g,cx*2.15,0.04,cz*2.15);}
+    P.engine=mgsMesh(new THREE.CylinderGeometry(0.2,0.42,0.5,16,1,true),dark,g,0,0.62,0);P.engine.material.side=THREE.DoubleSide;
+    P.flame=mgsFlame(g,3.0,0.42);P.flame.position.set(0,0.4,0);
+    if(id==='moon'){P.panels=[mgsPanel(g,1.5,1.0,-1.5,1.75,0),mgsPanel(g,1.5,1.0,1.5,1.75,0)];P.panels[0].rotation.z=0.35;P.panels[1].rotation.z=-0.35;
+      P.dish=mgsDish(g,0.2,1.65,-0.5,0.6);mgsMesh(new THREE.CylinderGeometry(0.05,0.05,1.5,6),grey,g,0.9,0.9,0.85);mgsLamp(g,0,1.5,1.27);mgsLamp(g,0.9,1.3,0.9,0x9fe0ff);}
+    else{
+      mgsMesh(new THREE.BoxGeometry(2.3,0.06,1.2),grey,g,0,1.68,0);
+      var r=new THREE.Group();r.position.set(0,1.7,0);g.add(r);P.rover=r;P.body=mgsMesh(new THREE.BoxGeometry(1.5,0.36,0.95),mgsMat(0xdfe3e8,0.6,0.2),r,0,0.5,0);
+      P.panels=[mgsPanel(r,1.7,1.15,0,0.72,0)];P.wheels=[];
+      for(i=0;i<6;i++){var wz=(i%2?-1:1)*0.62,wx=(Math.floor(i/2)-1)*0.68,wh=mgsMesh(new THREE.CylinderGeometry(0.24,0.24,0.2,14),dark,r,wx,0.24,wz);wh.rotation.x=Math.PI/2;P.wheels.push(wh);
+        mgsMesh(new THREE.BoxGeometry(0.05,0.3,0.05),grey,r,wx,0.4,wz*0.9);}
+      mgsMesh(new THREE.CylinderGeometry(0.035,0.035,0.8,6),grey,r,0.55,1.1,0.25);mgsMesh(new THREE.BoxGeometry(0.3,0.13,0.14),mgsMat(0xf2f4f7),r,0.55,1.52,0.25);
+      P.dish=mgsDish(r,-0.45,0.75,-0.2,0.32);mgsLamp(r,0.55,1.52,0.33,0x9fe0ff);mgsLamp(r,0.76,0.5,0);
+    }
+  }
+  g.traverse(function(o){if(o.isMesh){o.castShadow=true;}});MGS.parts=P;return g;
+}
+function mgsInit(host){
+  var S=MGS;S.cv=add(host,'canvas','mgs-cv');S.gl=new THREE.WebGLRenderer({canvas:S.cv,antialias:true,alpha:false});S.gl.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+  S.gl.outputEncoding=THREE.sRGBEncoding;S.gl.toneMapping=THREE.ACESFilmicToneMapping;S.gl.toneMappingExposure=1.15;
+  S.scene=new THREE.Scene();S.scene.background=new THREE.Color(0x02030a);S.scene.fog=new THREE.Fog(0x02030a,2e4,4e4);S.cam=new THREE.PerspectiveCamera(42,1,0.3,16000);
+  S.sun=new THREE.DirectionalLight(0xfff4e2,2.4);S.sun.position.set(40,55,-30);S.scene.add(S.sun);S.amb=new THREE.HemisphereLight(0x9db4d8,0x1a1410,0.5);S.scene.add(S.amb);
+  /* estrellas */
+  var n=1800,sp=new Float32Array(n*3),i,v=new THREE.Vector3();for(i=0;i<n;i++){v.set(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1).normalize().multiplyScalar(9000);sp[i*3]=v.x;sp[i*3+1]=v.y;sp[i*3+2]=v.z;}
+  var sg=new THREE.BufferGeometry();sg.setAttribute('position',new THREE.BufferAttribute(sp,3));S.stars=new THREE.Points(sg,new THREE.PointsMaterial({color:0xdfe8ff,size:1.6,sizeAttenuation:false,transparent:true,opacity:0.9,depthWrite:false,fog:false}));S.scene.add(S.stars);
+  /* mundos */
+  var TL=new THREE.TextureLoader(),tx=function(u){var t=TL.load(u);t.encoding=THREE.sRGBEncoding;t.anisotropy=4;return t;};
+  S.earth=mgsMesh(new THREE.SphereGeometry(1,64,32),new THREE.MeshStandardMaterial({map:tx('assets/textures/earth_day_2048.jpg'),roughness:0.9,fog:false}),S.scene);
+  S.moon=mgsMesh(new THREE.SphereGeometry(1,64,32),new THREE.MeshStandardMaterial({map:tx('assets/textures/moon_lroc_color_2k.jpg'),roughness:1,fog:false}),S.scene);
+  S.mars=mgsMesh(new THREE.SphereGeometry(1,64,32),new THREE.MeshStandardMaterial({map:tx('assets/textures/mars.jpg'),roughness:1,fog:false}),S.scene);
+  var ag=new THREE.IcosahedronGeometry(1,4),ap=ag.attributes.position;for(i=0;i<ap.count;i++){v.fromBufferAttribute(ap,i);var q=1+0.16*Math.sin(v.x*3.1+1)*Math.cos(v.y*2.7)+0.1*Math.sin(v.z*5.3+v.x*2)+0.05*Math.sin(v.y*9+v.z*7);v.multiplyScalar(q);v.x*=1.35;ap.setXYZ(i,v.x,v.y,v.z);}
+  ag.computeVertexNormals();S.asteroid=mgsMesh(ag,new THREE.MeshStandardMaterial({color:mgsCol(0x4d463e),roughness:1,flatShading:true,fog:false}),S.scene);
+  /* suelo, rocas y plataforma */
+  S.ground=mgsMesh(new THREE.CircleGeometry(6000,64),new THREE.MeshStandardMaterial({color:0x777777,roughness:1}),S.scene);S.ground.rotation.x=-Math.PI/2;
+  S.shadow=mgsMesh(new THREE.CircleGeometry(1,28),new THREE.MeshBasicMaterial({color:0x000000,transparent:true,opacity:0.35,depthWrite:false,fog:false}),S.scene,0,0.03,0);S.shadow.rotation.x=-Math.PI/2;
+  S.rocks=[];S.rockMat=new THREE.MeshStandardMaterial({color:0x888888,roughness:1,flatShading:true,emissive:mgsCol(0xff3b2a),emissiveIntensity:0});
+  for(i=0;i<16;i++){var rk=mgsMesh(new THREE.IcosahedronGeometry(1,0),S.rockMat,S.scene);rk.userData.s=0.35+((i*37)%10)/10*0.75;rk.userData.a=i*2.399;rk.rotation.set(i,i*1.7,i*0.4);S.rocks.push(rk);}
+  S.pad=new THREE.Group();S.scene.add(S.pad);mgsMesh(new THREE.CylinderGeometry(9,10,0.5,40),new THREE.MeshStandardMaterial({color:mgsCol(0x3a3f47),roughness:0.9}),S.pad,0,0.25,0);
+  var tw=new THREE.MeshStandardMaterial({color:mgsCol(0x4a505a),roughness:0.7,metalness:0.4}),ty;
+  [[-3.9,-0.5],[-3.9,0.5],[-2.9,-0.5],[-2.9,0.5]].forEach(function(q){mgsRod(S.pad,tw,0.07,q[0],0.5,q[1],q[0],16.5,q[1]);});
+  for(ty=1.5;ty<16.5;ty+=1.5){mgsRod(S.pad,tw,0.045,-3.9,ty,0.5,-2.9,ty+1.5,0.5);mgsRod(S.pad,tw,0.045,-2.9,ty,-0.5,-3.9,ty+1.5,-0.5);mgsRod(S.pad,tw,0.045,-3.9,ty,-0.5,-3.9,ty,0.5);mgsRod(S.pad,tw,0.045,-2.9,ty,-0.5,-2.9,ty,0.5);}
+  S.arms=[mgsRod(S.pad,tw,0.09,-2.9,11.5,0,-0.75,11.5,0),mgsRod(S.pad,tw,0.09,-2.9,6,0,-0.75,6,0)];
+  mgsMesh(new THREE.SphereGeometry(0.16,10,8),new THREE.MeshBasicMaterial({color:0xff3b2a,toneMapped:false,fog:false}),S.pad,-3.4,16.8,0);
+  S.flood=new THREE.PointLight(0xffe2b0,1.6,70,1.4);S.flood.position.set(7,2.5,9);S.pad.add(S.flood);var f2=new THREE.PointLight(0xbfd4ff,0.9,70,1.4);f2.position.set(-8,3,-8);S.pad.add(f2);S.flood2=f2;
+  try{var R=buildRocket3D('atlasV401');S.rocket=new THREE.Group();R.root.scale.setScalar(14/R.height);S.rocket.add(R.root);S.rocket.position.y=0.5;S.pad.add(S.rocket);
+    S.rFlame=mgsFlame(S.rocket,9,0.9);S.rFlame.position.y=0.2;}catch(e){S.rocket=new THREE.Group();S.pad.add(S.rocket);S.rFlame=mgsFlame(S.rocket,9,0.9);}
+  /* nubes de tormenta y rayo */
+  var cc=document.createElement('canvas');cc.width=cc.height=128;var cx=cc.getContext('2d'),gr=cx.createRadialGradient(64,64,6,64,64,62);gr.addColorStop(0,'rgba(70,78,92,1)');gr.addColorStop(1,'rgba(40,46,58,0)');cx.fillStyle=gr;cx.fillRect(0,0,128,128);
+  var ct=new THREE.CanvasTexture(cc);ct.encoding=THREE.sRGBEncoding;S.cloudMat=new THREE.SpriteMaterial({map:ct,transparent:true,opacity:0,depthWrite:false,fog:false});S.clouds=new THREE.Group();S.pad.add(S.clouds);
+  for(i=0;i<14;i++){var cl=new THREE.Sprite(S.cloudMat);cl.position.set(Math.cos(i*2.4)*(75+(i%5)*12),17+(i%4)*7,Math.sin(i*2.4)*(75+(i%5)*12));cl.scale.set(90+(i%3)*30,30+(i%2)*10,1);S.clouds.add(cl);}
+  S.bolt=new THREE.Line(new THREE.BufferGeometry().setAttribute('position',new THREE.BufferAttribute(new Float32Array(30),3)),new THREE.LineBasicMaterial({color:0xeaf2ff,toneMapped:false,fog:false}));S.bolt.visible=false;S.bolt.frustumCulled=false;S.pad.add(S.bolt);S.boltT=0;
+  /* camino previsto, camino real (rojo) y haz de radio */
+  var pn=260,pp=new Float32Array(pn*3);for(i=0;i<pn;i++)pp[i*3+2]=(i-pn/2)*3.2;var pg=new THREE.BufferGeometry();pg.setAttribute('position',new THREE.BufferAttribute(pp,3));
+  S.path=new THREE.Points(pg,new THREE.PointsMaterial({color:0xffd08a,size:2.6,sizeAttenuation:false,toneMapped:false,fog:false,transparent:true,opacity:0.75,depthWrite:false}));S.path.frustumCulled=false;S.scene.add(S.path);
+  S.veer=new THREE.Line(new THREE.BufferGeometry().setAttribute('position',new THREE.BufferAttribute(new Float32Array(72),3)),new THREE.LineBasicMaterial({color:0xff6b5a,toneMapped:false,fog:false}));S.veer.frustumCulled=false;S.scene.add(S.veer);
+  S.beam=new THREE.Line(new THREE.BufferGeometry().setAttribute('position',new THREE.BufferAttribute(new Float32Array(6),3)),new THREE.LineBasicMaterial({color:0x7fd49a,toneMapped:false,fog:false,transparent:true}));S.beam.frustumCulled=false;S.scene.add(S.beam);
+  /* partículas: humo, polvo y chispas */
+  S.pN=420;S.pP=new Float32Array(S.pN*3);S.pC=new Float32Array(S.pN*3);S.pV=new Float32Array(S.pN*3);S.pL=new Float32Array(S.pN);S.pB=new Float32Array(S.pN*4);S.pI=0;
+  var g2=new THREE.BufferGeometry();g2.setAttribute('position',new THREE.BufferAttribute(S.pP,3));g2.setAttribute('color',new THREE.BufferAttribute(S.pC,3));
+  var pc=document.createElement('canvas');pc.width=pc.height=64;var px=pc.getContext('2d'),g3=px.createRadialGradient(32,32,2,32,32,30);g3.addColorStop(0,'rgba(255,255,255,1)');g3.addColorStop(1,'rgba(255,255,255,0)');px.fillStyle=g3;px.fillRect(0,0,64,64);
+  S.pts=new THREE.Points(g2,new THREE.PointsMaterial({size:0.9,map:new THREE.CanvasTexture(pc),vertexColors:true,toneMapped:false,fog:false,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));S.pts.frustumCulled=false;S.scene.add(S.pts);
+  S.ready=true;
+}
+function mgsPuff(x,y,z,n,col,sp,up,life){var S=MGS,c=mgsCol(col),i,j;for(i=0;i<n;i++){j=S.pI=(S.pI+1)%S.pN;S.pP[j*3]=x;S.pP[j*3+1]=y;S.pP[j*3+2]=z;
+  S.pV[j*3]=(Math.random()-0.5)*sp;S.pV[j*3+1]=(Math.random()-0.5)*sp+(up||0);S.pV[j*3+2]=(Math.random()-0.5)*sp;S.pL[j]=S.pB[j*4+3]=(life||1.2)*(0.6+Math.random()*0.6);S.pB[j*4]=c.r;S.pB[j*4+1]=c.g;S.pB[j*4+2]=c.b;}}
+function mgsOnce(name,cond,fn){if(cond&&!MGS.fired[name]){MGS.fired[name]=1;fn();}}
+function mgsHook(n,a,b){var f=MGS.hooks[n];if(f)f(a,b);}
+function mgsStrike(tx,ty,tz){var S=MGS,a=S.bolt.geometry.attributes.position,i,x0=tx+(Math.random()-0.5)*14,z0=tz+(Math.random()-0.5)*8;
+  for(i=0;i<10;i++){var u=i/9;a.setXYZ(i,x0+(tx-x0)*u+(i&&i<9?(Math.random()-0.5)*2.4:0),30+(ty-30)*u,z0+(tz-z0)*u+(i&&i<9?(Math.random()-0.5)*2.4:0));}
+  a.needsUpdate=true;S.boltT=0.16;mgsHook('flash','#dfe8ff',0.5);}
+
+function mgsOpen(host){if(!MGS.ready)mgsInit(host);MGS.on=true;}
+function mgsClose(){MGS.on=false;}
+function mgsSetup(id){var S=MGS;if(S.craft){S.scene.remove(S.craft);}S.mats=S.mats.filter(function(){return false;});S.lamps=[];S.id=id;S.craft=mgsCraft(id);S.scene.add(S.craft);
+  if(S.plat){S.scene.remove(S.plat);S.plat=null;}S.phase='';for(var i=0;i<S.pN;i++)S.pL[i]=0;}
+/* etapa -> lugar. kind: pad (plataforma), space (viaje), land (llegada con motor), ground (en el suelo), near (junto al asteroide) */
+function mgsGo(phase){
+  var S=MGS,id=S.id,kind=phase==='launch'?'pad':(phase==='cruise'?'space':(id==='asteroid'?'near':(phase==='arrival'?'land':'ground')));
+  S.phase=phase;S.kind=kind;S.mode='calm';S.mt=0;S.fired={};S.sys=null;
+  var surf=kind==='land'||kind==='ground',C=S.camT;
+  S.pad.visible=kind==='pad';S.craft.visible=kind!=='pad';S.ground.visible=surf||kind==='pad';S.path.visible=kind==='space';
+  S.rocks.forEach(function(r,i){r.visible=surf;var d=kind==='land'?(0.8+(i%5)*0.95):(9+i*3.1),s=r.userData.s*(kind==='land'?1.15:1);r.position.set(Math.cos(r.userData.a)*d,s*0.35,Math.sin(r.userData.a)*d);r.scale.set(s,s*0.75,s);});
+  S.rockMat.color.copy(mgsCol(id==='mars'?0x7a4630:0x7d7d78));S.ground.material.color.copy(mgsCol(kind==='pad'?0x23272e:(id==='mars'?0x8a4a30:0x505256)));
+  S.fogD=kind==='pad'?[70,700]:(surf?[60,1400]:[2e4,4e4]);
+  S.sky=new THREE.Color(kind==='pad'?0x101d33:((surf&&id==='mars')?0xa9805f:0x02030a));S.stars.visible=!(kind==='pad'||(surf&&id==='mars'));
+  S.earth.visible=kind==='space'||(surf&&id==='moon');S.moon.visible=kind==='space'&&id==='moon';S.mars.visible=kind==='space'&&id==='mars';S.asteroid.visible=id==='asteroid'&&kind!=='pad';
+  if(kind==='space'){S.earth.position.set(-420,-260,-1900);S.earth.scale.setScalar(210);var d=id==='moon'?S.moon:(id==='mars'?S.mars:S.asteroid);d.position.set(160,90,1900);d.scale.setScalar(id==='asteroid'?14:70);}
+  if(surf&&id==='moon'){S.earth.position.set(-700,520,1900);S.earth.scale.setScalar(120);}
+  if(kind==='near'){S.asteroid.scale.setScalar(24);}
+  /* Huella 1: en el viaje y la llegada el rover va sobre la plataforma; en el suelo ya bajó y la plataforma queda atrás */
+  if(id==='mars'&&S.parts.rover){var r=S.parts.rover;if(kind==='ground'){if(!S.plat){S.plat=new THREE.Group();S.scene.add(S.plat);}
+      while(S.craft.children.length){var c=S.craft.children[0];if(c===r){S.craft.remove(r);continue;}S.plat.add(c);}S.craft.add(r);r.position.set(0,0,0);S.plat.position.set(-8,0,-7);S.plat.rotation.y=0.6;S.plat.visible=true;}
+    else if(S.plat){while(S.plat.children.length)S.craft.add(S.plat.children[0]);r.position.set(0,1.7,0);S.plat.visible=false;}}
+  var view={pad:[0.9,0.06,34,0,7,0],space:[0.7,0.2,15,0,0,0],land:[0.5,0.12,24,0,5.5,0],ground:[0.7,0.15,id==='mars'?9.5:14,0,1,0],near:[-2.0,0.16,17,0,0,0]}[kind];
+  C.az=view[0];C.el=view[1];C.dist=view[2];C.x=view[3];C.y=view[4];C.z=view[5];for(var k in C)S.cam0[k]=C[k];S.cam0.dist*=1.25;
+}
+function mgsCalm(){MGS.mode='calm';MGS.mt=0;MGS.fired={};MGS.sys=null;mgsHook('signal',false);mgsHook('glitch',false);}
+function mgsAlert(key,sys){MGS.mode='alert';MGS.key=key;MGS.sys=sys;MGS.mt=0;MGS.fired={};mgsHook('signal',false);mgsHook('glitch',false);}
+function mgsFix(key,cb){var F=MGS_FIX[key];MGS.mode='fix';MGS.key=key;MGS.mt=0;MGS.fired={};MGS.dur=F?F.d:1.5;MGS.cb=cb;MGS.hold=MGS.P;}
+function mgsFault(key,k,cb){var F=MGS_FAULT[key+k];MGS.mode='fault';MGS.key=key;MGS.k=k;MGS.mt=0;MGS.fired={};MGS.dur=F?F.d:3;MGS.cb=cb;MGS.hold=MGS.P;}
+/* pose normal de cada lugar */
+function mgsBase(t){
+  var S=MGS,k=S.kind,P={x:0,y:0,z:0,rx:0,ry:0,rz:0,flame:0,power:1,tint:0,tk:0,veer:0,storm:0,rY:0,rFlame:0,rTilt:0,astZ:78,astX:0,spin:0,sink:0,dish:0,beam:0,beamBad:0,hot:0,shake:0,night:0,wind:0,sky:0,lapse:0};
+  if(k==='space'){P.rx=S.id==='asteroid'?0:Math.PI/2;P.rz=Math.sin(t*0.3)*0.05;}
+  if(k==='land'){P.y=6.5+Math.sin(t*1.3)*0.25;P.flame=0.75;}
+  if(k==='near'){P.ry=S.phase==='arrival'?Math.PI:0.5;P.flame=S.phase==='arrival'?1:0;P.astX=6;if(S.phase!=='arrival'){P.astZ=58;P.astX=16;}}
+  if(k==='ground'){P.dish=Math.sin(t*0.4)*0.2;}
+  return P;
+}
+/* ---- la alerta mientras espera una decisión ---- */
+var MGS_ALERT={
+  storm:function(P,t){P.storm=mgsE(mgsR(t,0,1.2));if(t>1&&Math.random()<0.012)mgsStrike((Math.random()-0.5)*40,22,-16);},
+  attitude:function(P,t){P.rz+=t*0.55;P.rx+=Math.sin(t*0.5)*0.35;P.power=0.55+0.25*Math.sin(t*7);},
+  course:function(P,t){P.veer=0.16*mgsE(mgsR(t,0,1.5));},
+  boulders:function(P,t){P.hot=0.55+0.45*Math.sin(t*5);},
+  burn:function(P,t){P.flame=t<0.5?(Math.sin(t*40)>0?1:0):0;P.astZ=78-Math.min(30,t*2);},
+  wheel:function(P,t){P.x=Math.sin(t*26)*0.02*(1-mgsR(t,0,1.5));},
+  night:function(P,t){P.night=0.32*mgsE(mgsR(t,0,2));},
+  fuel:function(P,t){P.dish=Math.sin(t*2.2)*0.3;if(Math.random()<0.03)mgsPuff(0.9,0.2,0.6,2,0xcfe8ff,0.5,0,0.5);},
+  dust:function(P,t){P.tint=2;P.tk=0.75*mgsE(mgsR(t,0,1.5));P.power=1-0.4*mgsR(t,0,1.5);},
+  upload:function(P,t){P.beam=0.35+0.3*Math.sin(t*4);}
+};
+/* ---- lo que pasa cuando la decisión es buena ---- */
+var MGS_FIX={
+  storm:{d:6,f:function(P,t){P.storm=1-mgsE(mgsR(t,0,1.6));var u=mgsR(t,1.9,6);P.rFlame=t>1.7?1:0;P.rY=240*u*u;P.shake=t>1.7?0.3*(1-u):0;P.sky=mgsR(t,3,6);
+    if(t>1.7&&t<4&&Math.random()<0.6)mgsPuff((Math.random()-0.5)*3,1,(Math.random()-0.5)*3,3,0x8a8f98,7,1.5,2.2);}},
+  attitude:{d:2.6,f:function(P,t,H){var e=1-mgsE(mgsR(t,0,1.8));P.rz=H.rz%(Math.PI*2)*e;P.rx=Math.PI/2*(MGS.id==='asteroid'?0:1)+(H.rx-(MGS.id==='asteroid'?0:Math.PI/2))*e;P.power=1-0.4*e;mgsOnce('ok',t>1.8,function(){mgsHook('flash','#7fd49a',0.25);});}},
+  course:{d:2.4,f:function(P,t){P.flame=t>0.3&&t<0.9?1:0;P.veer=0.16*(1-mgsE(mgsR(t,0.5,1.9)));}},
+  boulders:{d:3.8,f:function(P,t){P.x=14*mgsE(mgsR(t,0.2,2.1));P.y=6.5*(1-mgsE(mgsR(t,1.9,3.3)));P.flame=t<3.3?0.75:0;P.hot=0;mgsOnce('td',t>3.25,function(){mgsPuff(14,0.3,0,40,0xb7a48c,5,0.6,1.6);});}},
+  burn:{d:3.6,f:function(P,t){P.flame=0;P.astZ=48-160*mgsE(mgsR(t,0.2,3.6));P.astX=6+34*mgsR(t,0.2,3.6);}},
+  wheel:{d:3.6,f:function(P,t){var u=mgsR(t,0.3,3.6);P.x=-4.5*u;P.spin=-t*2.2;if(u>0&&u<1&&Math.random()<0.3)mgsPuff(P.x+0.7,0.1,0.6,1,0xb07a56,0.6,0.2,0.9);}},
+  night:{d:4.6,f:function(P,t){P.night=mgsE(mgsR(t,0,1.5))-mgsE(mgsR(t,3.1,4.6));P.power=t>0.9&&t<3.6?0.12:1;}},
+  fuel:{d:3.2,f:function(P,t){P.dish=0;P.beam=mgsR(t,0.4,1)*(0.6+0.4*Math.sin(t*14));}},
+  dust:{d:3.8,f:function(P,t){P.tint=2;P.tk=0.75-0.5*mgsE(mgsR(t,1.6,3.6));P.power=0.6+0.4*mgsR(t,2.6,3.8);P.wind=t>1.2&&t<3.4?1:0;}},
+  upload:{d:2.8,f:function(P,t){P.beam=t<1.9?(0.6+0.4*Math.sin(t*16)):0;mgsOnce('ok',t>1.7,function(){mgsHook('flash','#7fd49a',0.25);});}}
+};
+/* ---- los veinte errores posibles: evento + número de opción ---- */
+var MGS_FAULT={
+  /* despegar con la tormenta encima: un rayo alcanza el cohete */
+  storm0:{d:4,f:function(P,t){P.storm=1;var u=mgsR(t,0.2,2.6);P.rY=46*u*u;P.rFlame=t>0.2&&t<1.75?1:(t<2.2&&Math.sin(t*50)>0?0.6:0);
+    mgsOnce('b',t>1.6,function(){mgsStrike(0,P.rY+14,0);mgsHook('flash','#ffffff',0.9);});P.shake=t>1.6?0.7*(1-mgsR(t,1.6,3)):0.15;P.power=t>1.6?0:1;P.rTilt=0.55*mgsE(mgsR(t,1.8,3.8));
+    if(t>1.7&&Math.random()<0.4)mgsPuff(0,P.rY+8,0,2,0xffb060,3,0,0.7);}},
+  /* cancelar: la tormenta pasa y el cohete queda apagado en la plataforma */
+  storm2:{d:3.6,f:function(P,t){P.storm=1-mgsE(mgsR(t,1.2,3));P.power=t>0.4?0:1;P.night=0.55*mgsE(mgsR(t,0.3,1.4));}},
+  /* motor principal con la nave girando: sale disparada fuera del camino */
+  attitude0:{d:3.6,f:function(P,t,H){var u=mgsR(t,0.3,3.4);P.flame=t>0.3?1:0;P.rz=H.rz+t*t*1.3;P.rx=H.rx+t*1.1;P.x=7*u*u;P.y=3.5*u*u;P.veer=1.2*u;P.shake=0.25;}},
+  /* seguir midiendo: la batería se agota y se pierde el contacto */
+  attitude1:{d:3.8,f:function(P,t,H){P.rz=H.rz+t*0.55;P.rx=H.rx;P.power=Math.max(0,0.6-mgsR(t,0.3,2.2));P.tint=3;P.tk=0.9*mgsR(t,0.8,2.8);mgsOnce('s',t>2.7,function(){mgsHook('signal',true);});}},
+  /* esperar: el desvío crece hasta pasar lejos del destino */
+  course0:{d:3.6,f:function(P,t){var u=mgsR(t,0.2,3.2);P.veer=0.16+1.9*u*u;P.x=9*u*u;mgsOnce('f',t>2.8,function(){mgsHook('flash','#ff6b5a',0.3);});}},
+  /* encendido demasiado largo: se pasa para el otro lado y gasta el combustible */
+  course2:{d:3.6,f:function(P,t){var u=mgsR(t,0.3,2.8);P.flame=t>0.2&&t<2.7?1:(t<3.1&&Math.sin(t*45)>0?0.5:0);P.veer=0.16-2.1*u;P.x=-8*u*u;P.shake=t<2.7?0.2:0;}},
+  /* bajar entre las rocas: una pata queda sobre una piedra y la nave se vuelca */
+  boulders0:{d:3.6,f:function(P,t){P.hot=1;P.y=6.5-5.6*mgsE(mgsR(t,0.2,1.8));P.flame=t<1.8?0.75:0;var u=mgsR(t,1.8,2.7);P.rz=1.3*u*u;P.x=1.2*u;P.y-=0.2*u;
+    mgsOnce('d',t>1.75,function(){mgsPuff(0,0.4,0,30,0xb7a48c,5,0.5,1.4);});P.shake=t>1.8&&t<2.9?0.5:0;P.power=t>2.6?0.3:1;}},
+  /* apagar el motor antes: cae y golpea el suelo */
+  boulders1:{d:3.4,f:function(P,t){var u=mgsR(t,0.3,1.25);P.flame=t<0.3?0.75:0;P.y=6.5-6.1*u*u;if(t>1.25){P.y=0.4;P.sink=0.5;P.rz=0.4;P.rx=0.2;P.power=0;}
+    mgsOnce('i',t>1.25,function(){mgsPuff(0,0.4,0,90,0xc9b79e,9,1.2,2);mgsHook('flash','#ffffff',0.7);});P.shake=t>1.25?1*(1-mgsR(t,1.25,2.6)):0;}},
+  /* encender una y otra vez un motor que falló: termina roto */
+  burn0:{d:3.6,f:function(P,t){P.astZ=48-t*2;P.flame=t<2.2?(Math.sin(t*9)>0.5?1:0):0;mgsOnce('x',t>2.2,function(){mgsPuff(0,0,1.6,70,0xff9a3c,9,0,1.3);mgsHook('flash','#ffb060',0.7);});
+    P.shake=t>2.2?0.8*(1-mgsR(t,2.2,3.4)):0.1;if(t>2.2){P.rz=(t-2.2)*0.9;P.rx=(t-2.2)*0.5;P.power=Math.sin(t*30)>0?0.6:0;}}},
+  /* abandonar: la nave sana pasa de largo y se apaga */
+  burn2:{d:3.6,f:function(P,t){var u=mgsE(mgsR(t,0.2,3.6));P.flame=0;P.astZ=48-160*u;P.astX=6+34*u;P.power=1-mgsR(t,0.6,2.4);P.tint=3;P.tk=0.7*mgsR(t,1,3);P.ry=Math.PI+t*0.2;}},
+  /* toda la potencia con una rueda trabada: se entierra y se quema un motor */
+  wheel1:{d:3.6,f:function(P,t){P.spin=t*t*7;P.sink=0.42*mgsE(mgsR(t,0.3,2.6));P.rz=0.1*mgsR(t,0.5,2.6);P.shake=t<2.6?0.22:0;if(t<2.6&&Math.random()<0.7)mgsPuff((Math.random()-0.5)*1.6,0.15,(Math.random()<0.5?-1:1)*0.7,2,0xb07a56,2.4,0.9,1);
+    mgsOnce('q',t>2.5,function(){mgsPuff(0.7,0.35,0.65,35,0xff8a3c,3,0.6,0.9);mgsHook('flash','#ff8a3c',0.35);});if(t>2.6){P.spin=2.6*2.6*7;P.power=0.4;}}},
+  /* estacionarse para siempre: pasan los días, se junta polvo y no se descubre nada */
+  wheel2:{d:3.8,f:function(P,t){P.lapse=t*5;P.night=0.45-0.45*Math.cos(t*5);P.tint=2;P.tk=0.85*mgsR(t,0.4,3.4);P.power=1-0.6*mgsR(t,1,3.4);P.dish=0;}},
+  /* todo encendido en la noche lunar: batería vacía y electrónica congelada */
+  night0:{d:3.8,f:function(P,t){P.night=mgsE(mgsR(t,0.2,1.6));P.power=t<2?1:(t<2.5&&Math.sin(t*40)>0?0.7:0);P.tint=1;P.tk=0.85*mgsE(mgsR(t,2,3.5));}},
+  /* intentar mudarse: no queda combustible y la noche llega igual */
+  night2:{d:3.8,f:function(P,t){P.flame=t>0.3&&t<1.7&&Math.sin(t*13)>0.6?0.3:0;P.y=P.flame?0.06:0;if(P.flame&&Math.random()<0.5)mgsPuff(0,0.3,0,2,0xa9a9a2,2.5,0.3,0.8);
+    P.night=mgsE(mgsR(t,1.7,3.1));P.tint=1;P.tk=0.5*mgsR(t,2.6,3.7);P.power=1-0.85*mgsR(t,2.2,3.2);}},
+  /* sacar más fotos: la antena deja de apuntar a la Tierra y las fotos no llegan */
+  fuel0:{d:3.8,f:function(P,t){[0.4,0.9,1.4].forEach(function(q,i){mgsOnce('p'+i,t>q,function(){mgsHook('flash','#ffffff',0.22);mgsPuff(0,0,1.1,6,0xffffff,0.8,0,0.3);});});
+    P.dish=1.5*mgsE(mgsR(t,1.3,3));P.beam=t>0.2&&t<2.6?0.8:0;P.beamBad=mgsR(t,1.4,2.4);mgsOnce('s',t>2.7,function(){mgsHook('signal',true);});}},
+  /* acelerar: cambia la órbita y se va el combustible de la antena */
+  fuel1:{d:3.8,f:function(P,t){var u=mgsR(t,0.3,3);P.flame=t>0.3&&t<2.3?1:0;P.astZ=58+60*u*u;P.astX=16+20*u;P.veer=1.1*u;P.dish=1.2*mgsR(t,2.2,3.4);mgsOnce('s',t>3,function(){mgsHook('signal',true);});}},
+  /* dejar todo encendido: la batería se agota y el frío rompe la electrónica */
+  dust0:{d:3.8,f:function(P,t){P.tint=t<2.6?2:1;P.tk=t<2.6?0.75+0.25*mgsR(t,0,2):0.8*mgsR(t,2.6,3.6);P.power=Math.max(0,0.6-0.6*mgsR(t,0.4,2.2));P.night=0.5*mgsE(mgsR(t,1.4,3));}},
+  /* andar más rápido: gasta la batería antes */
+  dust2:{d:3.6,f:function(P,t){var u=mgsR(t,0.2,2.1);P.tint=2;P.tk=0.75;P.x=11*(1-(1-u)*(1-u));P.spin=u*40;P.power=0.6*(1-u);if(u>0&&u<1&&Math.random()<0.6)mgsPuff(P.x-0.8,0.15,(Math.random()-0.5)*1.2,2,0xb07a56,1.2,0.4,1);
+    if(t>2.1){P.power=0;P.tint=3;P.tk=0.5*mgsR(t,2.1,3.2);}}},
+  /* enviar la actualización sin probar: la antena se apaga y se pierde el contacto */
+  upload1:{d:3.8,f:function(P,t){P.beam=t<1.3?(0.6+0.4*Math.sin(t*18)):0;mgsOnce('g',t>1.1,function(){mgsHook('glitch',true);mgsHook('flash','#ff6b5a',0.3);});P.dish=3.2*mgsE(mgsR(t,1.2,3.2));
+    P.power=t>1.1?(Math.sin(t*37)>0.3?0.8:0):1;mgsOnce('s',t>2.8,function(){mgsHook('glitch',false);mgsHook('signal',true);});}},
+  /* no actualizar nunca: pasan los meses y los errores se acumulan */
+  upload2:{d:3.8,f:function(P,t){P.lapse=t*5;P.night=0.35-0.35*Math.cos(t*5);P.power=Math.sin(t*10)>0?1:0.15;P.tint=2;P.tk=0.4*mgsR(t,0.5,3.2);mgsOnce('g',t>2.2,function(){mgsHook('glitch',true);});mgsOnce('h',t>3.3,function(){mgsHook('glitch',false);});}}
+};
+var MGS_TINT=[null,mgsCol(0xa9d2ff),mgsCol(0xa87a55),mgsCol(0x0c0f14)];
+var _mgA=new THREE.Vector3(),_mgB=new THREE.Vector3(),_mgSky=new THREE.Color(),_mgBlack=new THREE.Color(0x000000),_mgStorm=new THREE.Color(0x0a0f18);
+function mgsTick(dt,now){
+  var S=MGS;if(!S.ready||!S.craft)return;
+  var host=S.cv.parentNode,w=host.clientWidth||W,h=host.clientHeight||H;if(w!==S.w||h!==S.h){S.w=w;S.h=h;S.gl.setSize(w,h,false);S.cam.aspect=w/h;}
+  S.t+=dt;S.mt+=dt;var t=S.t,P=mgsBase(t),mt=S.mode==='calm'?0:S.mt,F;
+  if(S.mode==='alert'){F=MGS_ALERT[S.key];if(F)F(P,mt);}
+  else if(S.mode==='fix'||S.mode==='fault'){
+    /* se parte de la pose de la alerta, congelada en el instante de la decisión */
+    var H=S.hold||P;if(S.mode==='fault'){var A=MGS_ALERT[S.key];if(A&&S.key!=='storm'&&S.key!=='fuel')A(P,999);else if(S.key==='storm')P.storm=1;}
+    F=(S.mode==='fix'?MGS_FIX:MGS_FAULT)[S.key+(S.mode==='fault'?S.k:'')];if(F)F.f(P,Math.min(mt,F.d),H);
+    if(mt>=S.dur&&S.cb){var cb=S.cb;S.cb=null;cb();}
+  }
+  S.P=P;if(reduce)P.shake=0;
+  /* nave */
+  var c=S.craft;c.position.set(P.x,P.y-P.sink,P.z);c.rotation.set(P.rx,P.ry,P.rz);
+  var pa=S.parts,fl=pa.flame;fl.visible=P.flame>0.02;if(fl.visible){fl.scale.set(0.8+0.3*Math.random(),P.flame*(0.8+0.35*Math.random()),0.8+0.3*Math.random());}
+  if(pa.wheels)pa.wheels.forEach(function(wh){wh.rotation.y=P.spin;});if(pa.dish)pa.dish.rotation.y=P.dish;
+  var tc=MGS_TINT[P.tint];S.mats.forEach(function(m){m.color.copy(m.userData.base);if(tc)m.color.lerp(tc,P.tk);});
+  S.lamps.forEach(function(m,i){m.color.copy(m.userData.base).multiplyScalar(clamp(P.power,0,1)*(0.75+0.25*Math.sin(t*3+i)));});
+  if(pa.panels)pa.panels.forEach(function(p){p.material.emissiveIntensity=P.power;});
+  /* plataforma */
+  if(S.kind==='pad'){S.rocket.position.y=0.5+P.rY;S.rocket.rotation.z=P.rTilt;S.rFlame.visible=P.rFlame>0.02;if(S.rFlame.visible)S.rFlame.scale.set(0.85+0.3*Math.random(),P.rFlame*(0.8+0.4*Math.random()),0.85+0.3*Math.random());
+    S.arms.forEach(function(a){a.visible=P.rY<0.4;});S.flood.intensity=1.6*clamp(P.power+0.25,0,1);S.flood2.intensity=0.9*clamp(P.power+0.25,0,1);
+    S.cloudMat.opacity=0.92*P.storm;S.clouds.rotation.y=t*0.02;S.boltT-=dt;S.bolt.visible=S.boltT>0;}
+  /* asteroide, rocas */
+  if(S.kind==='near'){S.asteroid.position.set(P.astX,-9,P.astZ);S.asteroid.rotation.y=t*0.05;S.asteroid.rotation.x=0.3;}else if(S.kind==='space')S.asteroid.rotation.y=t*0.05;
+  S.rockMat.emissiveIntensity=P.hot*0.9;
+  var sh=S.shadow,surf=S.kind==='land'||S.kind==='ground';sh.visible=surf;if(surf){var ss=(S.id==='mars'&&S.kind==='ground'?1.25:2.5)*(1+P.y*0.06);sh.position.set(P.x,0.03,P.z);sh.scale.set(ss,ss,1);sh.material.opacity=0.42/(1+P.y*0.35)*(1-0.8*P.night);}
+  if(S.kind==='space'){S.stars.rotation.x=t*0.004;S.earth.rotation.y=t*0.03;}
+  /* luz, cielo */
+  var dayK=1-0.94*P.night,la=0.7+P.lapse;S.sun.position.set(Math.cos(la)*50,Math.max(6,55*Math.abs(Math.sin(la*0.5+1.1))),-Math.sin(la)*50);
+  S.sun.intensity=(S.kind==='pad'?0.5:(surf?1.7:2.6))*dayK*(S.boltT>0?2.2:1);S.amb.intensity=(S.kind==='pad'?0.55:0.6)*(0.25+0.75*dayK)+(S.boltT>0?1.2:0);
+  _mgSky.copy(S.sky).lerp(_mgBlack,Math.max(P.night*0.9,P.sky));if(S.kind==='pad')_mgSky.lerp(_mgStorm,P.storm*0.55);S.scene.background=_mgSky;S.scene.fog.color.copy(_mgSky);S.scene.fog.near=S.fogD[0];S.scene.fog.far=S.fogD[1];
+  if(S.kind==='pad')S.stars.visible=P.sky>0.5;
+  /* camino real, en rojo, cuando la nave se desvía */
+  S.veer.visible=Math.abs(P.veer)>0.01&&(S.kind==='space'||S.kind==='near');
+  if(S.veer.visible){var va=S.veer.geometry.attributes.position,i,sg=S.kind==='near'?-1:1;for(i=0;i<24;i++){var s=i*3.2;va.setXYZ(i,P.x+P.veer*s*s*0.03,P.y+P.veer*s*s*0.008,sg*s+P.z);}va.needsUpdate=true;}
+  /* haz de radio entre la antena y la Tierra */
+  S.beam.visible=P.beam>0.02&&!!pa.dish;
+  if(S.beam.visible){pa.dish.getWorldPosition(_mgA);_mgB.set(-0.25,0.55,-0.8).normalize();if(P.beamBad>0)_mgB.applyAxisAngle(new THREE.Vector3(0,1,0),P.beamBad*1.6);
+    var ba=S.beam.geometry.attributes.position;ba.setXYZ(0,_mgA.x,_mgA.y,_mgA.z);ba.setXYZ(1,_mgA.x+_mgB.x*900,_mgA.y+_mgB.y*900,_mgA.z+_mgB.z*900);ba.needsUpdate=true;
+    S.beam.material.opacity=P.beam;S.beam.material.color.set(P.beamBad>0.5?0xff6b5a:0x7fd49a);}
+  /* viento que limpia los paneles */
+  if(P.wind>0&&Math.random()<0.9)mgsPuff(-9,0.3+Math.random()*2.4,(Math.random()-0.5)*6,2,0xc79a74,0.6,0,1.4);
+  var wx=P.wind>0?14:0;
+  for(var j=0;j<S.pN;j++){if(S.pL[j]<=0){S.pC[j*3]=S.pC[j*3+1]=S.pC[j*3+2]=0;continue;}S.pL[j]-=dt;var kf=clamp(S.pL[j]/S.pB[j*4+3],0,1);
+    S.pP[j*3]+=(S.pV[j*3]+wx)*dt;S.pP[j*3+1]+=S.pV[j*3+1]*dt;S.pP[j*3+2]+=S.pV[j*3+2]*dt;S.pV[j*3]*=0.985;S.pV[j*3+1]*=0.985;S.pV[j*3+2]*=0.985;
+    S.pC[j*3]=S.pB[j*4]*kf;S.pC[j*3+1]=S.pB[j*4+1]*kf;S.pC[j*3+2]=S.pB[j*4+2]*kf;}
+  S.pts.geometry.attributes.position.needsUpdate=true;S.pts.geometry.attributes.color.needsUpdate=true;S.pts.material.size=S.kind==='pad'?2.6:0.9;
+  /* cámara: sigue a la nave, gira despacio y se acomoda con suavidad */
+  var C=S.cam0,T=S.camT,e=dt?1-Math.exp(-dt*2.2):1,fx=S.kind==='pad'?0:P.x,fy=S.kind==='pad'?P.rY:(S.kind==='land'?0:P.y-(S.kind==='land'?9:0));
+  var tx=T.x+fx,ty=T.y+fy,tz=T.z+P.z*0.6,td=T.dist*(S.kind==='pad'?1+P.rY/90:1),tel=T.el+(S.kind==='pad'?Math.min(0.5,P.rY/260):0);
+  C.x+=(tx-C.x)*e;C.y+=(ty-C.y)*e;C.z+=(tz-C.z)*e;C.dist+=(td-C.dist)*e;C.el+=(tel-C.el)*e;C.az=T.az+Math.sin(t*0.11)*0.45+(S.kind==='space'?t*0.03:0);
+  var ce=Math.cos(C.el),cam=S.cam;cam.position.set(C.x+Math.cos(C.az)*ce*C.dist,C.y+Math.sin(C.el)*C.dist,C.z+Math.sin(C.az)*ce*C.dist);
+  if(S.ground.visible&&cam.position.y<0.6)cam.position.y=0.6;
+  if(P.shake>0){cam.position.x+=(Math.random()-0.5)*P.shake*0.5;cam.position.y+=(Math.random()-0.5)*P.shake*0.5;}
+  cam.lookAt(C.x,C.y,C.z);
+  /* el cuadro de diálogo ocupa la parte de abajo: la nave se dibuja un poco más arriba */
+  cam.setViewOffset(w,h,0,Math.round(h*(w<700?0.2:0.13)),w,h);cam.updateProjectionMatrix();S.gl.render(S.scene,cam);
+  /* marca sobre la pieza con la alerta */
+  var mk=S.mark,o=null;
+  if(S.sys&&S.mode!=='calm'){o={power:pa.panels&&pa.panels[0],comms:pa.dish,engine:pa.engine,wheels:pa.wheels&&pa.wheels[4],attitude:pa.body,nav:pa.body,thermal:pa.body,software:pa.body}[S.sys]||pa.body;
+    if(S.kind==='pad'){_mgA.set(0,S.rocket.position.y+12,0);}else if(S.key==='boulders'&&S.mode==='alert'){_mgA.set(0,0.5,0);}else o.getWorldPosition(_mgA);
+    _mgA.project(cam);mk.vis=_mgA.z<1;mk.x=(_mgA.x*0.5+0.5)*w;mk.y=(-_mgA.y*0.5+0.5)*h;}
+  else mk.vis=false;
+}
+
 /* ---------- juego: analista de una misión ficticia ----------
-   El lector elige una misión inventada y decide qué hacer cuando algo falla. Cada evento trae una alerta, tres opciones
-   y una sola correcta; las equivocadas explican qué sale mal y dejan probar de nuevo. Al final se muestran las máquinas
-   reales que pasaron por algo parecido, con una frase que ya está en el sitio (no se agregan datos nuevos sobre ellas).
-   Es una pantalla aparte: no toca el viaje en 3D ni los datos de las misiones reales.
+   El lector elige un personaje y una misión inventada, y decide qué hacer cuando algo falla. La pantalla es como la de
+   las misiones: la nave en 3D sigue su rumbo (68-game-scene.js) y abajo aparece una conversación con la directora de vuelo.
+   Cada evento trae una alerta (amarilla, sin apuro; roja, con cuenta regresiva), tres respuestas y una sola correcta.
+   Una respuesta equivocada muestra en la nave una simulación de lo que saldría mal, explica por qué y deja probar de nuevo.
+   Al final se muestran las máquinas reales que pasaron por algo parecido, con una frase que ya está en el sitio.
+   Los eventos y sus textos salen de MG_DATA (src/js/67-game-data.js, generado por tools/make_game_data.py desde docs/juego/eventos.json).
    Va antes de la portada (70-home.js) en el orden de archivos, porque la portada llama a mgNavEntry y mgHomeEntry al armarse.
-   Datos: MG_DATA (src/js/67-game-data.js, generado por tools/make_game_data.py desde docs/juego/eventos.json).
-   API: mgHomeEntry(wrap), mgTexts(), mgOpen(), mgClose(). */
-var MG={el:null,body:null,state:'pick',m:null,evs:[],i:0,first:0,health:100,wrong:{},last:-1,fixed:{},timer:0,entry:null};
+   API: mgNavEntry(nav), mgHomeEntry(wrap), mgTexts(), mgOpen(), mgClose(), mgTick(dt,now). */
+var MG={el:null,body:null,state:'char',m:null,evs:[],i:0,first:0,health:100,wrong:{},last:-1,fixed:{},entry:null,me:0,run:0,sub:'',type:null,cd:null,ui:null};
 var MG_PHASES=['launch','cruise','arrival','ops','extended'];
+/* alertas rojas: hay que decidir antes de que se acabe el tiempo */
+var MG_RED={storm:1,attitude:1,boulders:1,burn:1},MG_SECS=30;
 var MG_STR={
-  es:{tag:'Misión ficticia',homeK:'Juego',homeT:'Sé analista de una misión',homeB:'Jugar',
+  es:{tag:'Misión ficticia',
+    charH:'Elegí quién sos',charP:'Escribí tu nombre y elegí el personaje que te representa en la sala de control. Después elegís la misión.',charK:'Analista',change:'Cambiar nombre o personaje',
+    nameL:'Tu nombre',faceL:'Tu personaje',go:'Continuar',
+    npc:'Nora · Directora de vuelo',who:['Lince','Cóndor','Yaguareté','Zorro'],warn:'Aviso',crit:'Crítica',sim:'Simulación: qué pasaría',noSignal:'Sin señal',
+    timeUp:'Se acabó el tiempo. Necesito una respuesta ya.',hello:'{who}, te toca la consola de {name}. Yo te paso lo que llega de la nave.',more:'Seguir (Enter)',secs:'Segundos para decidir',
+    homeK:'Juego',homeT:'Sé analista de una misión',homeB:'Jugar',
     homeP:'Elegí una misión inventada y decidí qué hacer cuando algo falla. Los problemas se parecen a los que tuvieron las máquinas de verdad.',
     pickH:'Vos sos analista de misión',
     pickP:'Tu trabajo es mirar los datos que llegan de la nave y decidir qué hacer cuando algo sale mal. Elegí tu misión. Es inventada, pero cada problema se parece a uno que vivió una máquina de verdad.',
@@ -5441,7 +5777,12 @@ var MG_STR={
     score:'Acertaste {n} de {t} decisiones al primer intento.',realH:'Máquinas de verdad que pasaron por algo parecido',
     open:'Ver su misión',again:'Jugar otra misión',back:'Volver al inicio',close:'Cerrar el juego',earth:'Tierra',
     dest:{moon:'Luna',mars:'Marte',asteroid:'Asteroide'}},
-  en:{tag:'Fictional mission',homeK:'Game',homeT:'Be the mission analyst',homeB:'Play',
+  en:{tag:'Fictional mission',
+    charH:'Choose who you are',charP:'Type your name and pick the character that stands for you in the control room. Next you pick the mission.',charK:'Analyst',change:'Change name or character',
+    nameL:'Your name',faceL:'Your character',go:'Continue',
+    npc:'Nora · Flight director',who:['Lynx','Condor','Jaguar','Fox'],warn:'Warning',crit:'Critical',sim:'Simulation: what would happen',noSignal:'No signal',
+    timeUp:'Time is up. I need an answer now.',hello:'{who}, you have the {name} console. I will pass you whatever comes in from the spacecraft.',more:'Continue (Enter)',secs:'Seconds left to decide',
+    homeK:'Game',homeT:'Be the mission analyst',homeB:'Play',
     homeP:'Pick a made-up mission and decide what to do when something fails. The problems are like the ones the real machines faced.',
     pickH:'You are the mission analyst',
     pickP:'Your job is to watch the data coming from the spacecraft and decide what to do when something goes wrong. Pick your mission. It is made up, but each problem is like one a real machine lived through.',
@@ -5458,6 +5799,10 @@ var MG_STR={
 function mgt(k){return MG_STR[lang][k];}
 function mgTx(o,name){var s=o?(o[lang]||o.en||''):'';return name?s.split('{name}').join(name):s;}
 function mgData(){return (typeof MG_DATA!=='undefined'&&MG_DATA)||{missions:[],events:[]};}
+/* el nombre lo escribe el lector; si lo deja vacío se usa el apodo del personaje */
+function mgClean(v){return String(v||'').replace(/\s+/g,' ').replace(/^ /,'').slice(0,16);}
+function mgWho(){return (MG.name||'').trim()||mgt('who')[MG.me];}
+try{MG.me=clamp(parseInt(localStorage.getItem('mgFace')||'0',10)||0,0,3);MG.name=mgClean(localStorage.getItem('mgName'));}catch(e){}
 
 (function(){
   var st=document.createElement('style');st.textContent=
@@ -5525,6 +5870,64 @@ function mgData(){return (typeof MG_DATA!=='undefined'&&MG_DATA)||{missions:[],e
   document.head.appendChild(st);
 })();
 
+(function(){
+  var st=document.createElement('style');st.textContent=
+  '.mg{overflow:hidden}.mgs-cv{position:absolute;inset:0;width:100%;height:100%;display:block}.mgs-cv[hidden]{display:none}'+
+  '.mg-scr{position:absolute;inset:0;overflow:auto;-webkit-overflow-scrolling:touch;z-index:7}.mg-scr[hidden],.mg-ui[hidden]{display:none}.mg-scr.is-over{background:rgba(5,7,11,.84)}'+
+  '.mg-ui{position:absolute;inset:0;z-index:3}'+
+  '.mg-hud{position:absolute;top:0;left:0;right:0;z-index:5;padding:8px max(clamp(14px,3vw,36px),env(safe-area-inset-right,0px)) 22px max(clamp(14px,3vw,36px),env(safe-area-inset-left,0px));background:linear-gradient(rgba(5,7,11,.85),rgba(5,7,11,0))}'+
+  '.mg-step{color:#a7b0bd;font-size:13px;white-space:nowrap}'+
+  '.mg-hp{display:flex;align-items:center;gap:8px;font-size:12.5px;color:#a7b0bd;white-space:nowrap}.mg-hp b{color:var(--fg);font-variant-numeric:tabular-nums}'+
+  '.mg-hpb{width:110px;height:6px;border-radius:3px;background:rgba(232,238,248,.16);overflow:hidden}.mg-hpb i{display:block;height:100%;transition:width .6s ease,background-color .6s ease}'+
+  '.mg-hp.is-hit{animation:mgHit .5s ease}'+
+  '.mg-al{position:absolute;top:64px;left:50%;transform:translateX(-50%);width:max-content;max-width:min(780px,calc(100% - 28px));display:flex;gap:10px;align-items:center;padding:9px 14px 11px;border-radius:10px;font-weight:600;letter-spacing:.03em;font-size:14.5px;line-height:1.3;background:rgba(40,28,6,.9);border:1px solid #ffd08a;color:#ffe2b0;z-index:4;overflow:hidden;animation:mgDrop .5s cubic-bezier(.2,1.4,.4,1)}'+
+  '.mg-al[hidden]{display:none}.mg-al.is-red{background:rgba(52,12,8,.92);border-color:#ff6b5a;color:#ffc9c0}.mg-al.is-ok{background:rgba(10,36,20,.92);border-color:#7fd49a;color:#c9f2d6}'+
+  '.mg-al .dot{flex:0 0 10px;height:10px;border-radius:50%;background:currentColor;animation:mgPulse 1.1s ease-in-out infinite}.mg-al.is-hot .dot{animation-duration:.4s}.mg-al.is-ok .dot{animation:none}'+
+  '.mg-al .lv{flex:0 0 auto;font-size:11px;letter-spacing:.14em;text-transform:uppercase;padding:2px 7px;border-radius:4px;background:#ffd08a;color:#1a1305}.mg-al.is-red .lv{background:#ff6b5a;color:#1f0703}.mg-al.is-ok .lv{background:#7fd49a;color:#04170b}'+
+  '.mg-al .cd{flex:0 0 auto;font-size:22px;font-variant-numeric:tabular-nums;min-width:1.6em;text-align:right;color:#fff}.mg-al .cd[hidden]{display:none}'+
+  '.mg-al .bar{position:absolute;left:0;bottom:0;height:3px;width:100%;background:currentColor;transform-origin:left center}.mg-al .bar[hidden]{display:none}'+
+  '.mg-mk{position:absolute;left:0;top:0;z-index:2;pointer-events:none;color:#ffd08a}.mg-mk[hidden]{display:none}.mg-mk.is-red{color:#ff6b5a}.mg-mk.is-ok{color:#7fd49a}'+
+  '.mg-mk i{position:absolute;left:-24px;top:-24px;width:48px;height:48px;border-radius:50%;border:2px solid currentColor;animation:mgRing 1.3s ease-out infinite}.mg-mk i+i{animation-delay:.65s}'+
+  '.mg-mk span{position:absolute;left:34px;top:-12px;font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;font-weight:600;white-space:nowrap;background:rgba(8,11,17,.82);padding:3px 8px;border-radius:4px;border:1px solid currentColor}'+
+  '.mg-sim{position:absolute;top:118px;left:50%;transform:translateX(-50%);z-index:4;font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;font-weight:600;white-space:nowrap;color:#ffc9c0;border:1px dashed #ff6b5a;border-radius:4px;padding:3px 9px;background:rgba(8,11,17,.8);animation:mgPulse 1s ease-in-out infinite}.mg-sim[hidden]{display:none}'+
+  '.mg-ns{position:absolute;inset:0;z-index:1;display:grid;place-items:center;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(255,255,255,.06) 0 2px,rgba(0,0,0,.3) 2px 5px),rgba(5,7,11,.8);background-size:100% 7px,auto;animation:mgNoise .18s steps(3) infinite}.mg-ns[hidden]{display:none}'+
+  '.mg-ns span{font-size:clamp(22px,4vw,40px);letter-spacing:.3em;text-transform:uppercase;font-weight:600;color:#ff6b5a;margin-top:-18vh;animation:mgPulse .9s steps(2) infinite}'+
+  '.mg-fl{position:absolute;inset:0;z-index:1;pointer-events:none;opacity:0}.mg-fade{position:absolute;inset:0;z-index:6;background:#05070b;opacity:0;pointer-events:none;transition:opacity .34s ease}.mg-fade.is-on{opacity:1}'+
+  '.mgs-cv.is-glitch{animation:mgGlitch .2s steps(2) infinite}'+
+  /* caja de diálogo */
+  '.mgd{position:absolute;left:50%;bottom:max(18px,env(safe-area-inset-bottom,0px));transform:translateX(-50%);width:min(900px,calc(100% - 28px));display:grid;grid-template-columns:84px minmax(0,1fr);gap:16px;align-items:start;padding:22px 20px 18px;border-radius:14px;background:rgba(8,11,17,.93);border:1px solid rgba(232,238,248,.34);box-shadow:0 0 0 4px rgba(8,11,17,.55),0 18px 50px rgba(0,0,0,.55);z-index:5;cursor:pointer;animation:mgUp .4s cubic-bezier(.2,1.2,.4,1)}'+
+  '.mgd.is-me{grid-template-columns:minmax(0,1fr) 84px;border-color:rgba(255,208,138,.6)}.mgd.is-me .mgd-face{order:2}'+
+  '.mgd-face{width:84px;height:84px;border-radius:12px;overflow:hidden;border:1px solid rgba(232,238,248,.34);background:#101722}.mgd-face svg{display:block;width:100%;height:100%}.mgd-face.is-pop{animation:mgPop .35s cubic-bezier(.2,1.6,.4,1)}'+
+  '.mgd-who{position:absolute;top:-12px;left:18px;font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;font-weight:600;background:var(--accent);color:#1a1305;border-radius:4px;padding:3px 9px;white-space:nowrap}.mgd.is-me .mgd-who{left:auto;right:18px;background:#eef2f8;color:#05070b}'+
+  '.mgd-text{margin:0;font-size:19px;line-height:1.45;min-height:4.35em;white-space:pre-wrap}.mgd.is-me .mgd-text{min-height:2.9em}'+
+  '.mgd-more{position:absolute;right:16px;bottom:7px;color:var(--accent);font-size:13px;animation:mgBob .8s ease-in-out infinite}.mgd-more[hidden]{display:none}'+
+  '.mgd.is-ask .mgd-text{min-height:0}.mgd-opts{display:grid;gap:4px;margin-top:10px}.mgd-opts[hidden]{display:none}'+
+  '.mg .mgd-opt{text-align:left;padding:9px 12px 9px 32px;border-radius:8px;background:none;border:1px solid rgba(232,238,248,.16);position:relative;font-size:17px;line-height:1.35;animation:mgUp2 .3s ease backwards}'+
+  '.mgd-opt:nth-child(2){animation-delay:.07s}.mgd-opt:nth-child(3){animation-delay:.14s}'+
+  '.mgd-opt:before{content:"\\25B6";position:absolute;left:11px;top:50%;transform:translateY(-50%);font-size:11px;color:var(--accent);opacity:0;transition:opacity .12s,left .12s}'+
+  '.mgd-opt:not(:disabled):hover,.mgd-opt:focus-visible{border-color:rgba(255,208,138,.7);background:rgba(255,208,138,.08)}.mgd-opt:not(:disabled):hover:before,.mgd-opt:focus-visible:before{opacity:1;left:13px}'+
+  '.mg .mgd-opt:disabled{color:#7f8896;text-decoration:line-through;cursor:default;border-color:transparent}'+
+  '.mg-live{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}'+
+  /* elegir personaje */
+  '.mg-nm{display:flex;flex-direction:column;gap:8px;margin:0}.mg-nm input{font:inherit;font-size:20px;color:var(--fg);background:#0b0f16;border:1px solid rgba(232,238,248,.34);border-radius:10px;padding:12px 14px;width:min(360px,100%);min-height:48px;box-sizing:border-box}'+
+  '.mg-nm input::placeholder{color:#7f8896}.mg-nm input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(255,208,138,.22)}'+
+  '.mg-chars{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(170px,45%),1fr));gap:12px}'+
+  '.mg .mg-char{display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px 12px;border-radius:12px;background:#0b0f16;border:1px solid rgba(232,238,248,.16);transition:transform .18s ease,border-color .18s ease}'+
+  '.mg .mg-char:hover,.mg .mg-char:focus-visible{border-color:var(--accent);transform:translateY(-4px)}.mg .mg-char[aria-pressed="true"]{border-color:var(--accent);background:rgba(255,208,138,.08);box-shadow:0 0 0 2px rgba(255,208,138,.35)}'+
+  '.mg-char svg{width:112px;height:112px;border-radius:14px;background:#101722}.mg-char b{font-size:19px;font-weight:600}.mg-char span{font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:#a7b0bd}'+
+  '.mg .mg-link{align-self:flex-start;background:none;border:0;padding:6px 0;color:#a7b0bd;text-decoration:underline;text-underline-offset:3px}.mg .mg-link:hover{color:var(--fg)}'+
+  '@media (max-width:820px){.mg-hud .mg-tag{display:none}.mg-hud .mg-name{order:0;flex:0 1 auto;font-size:16px}.mg-hud .mg-top{row-gap:0}.mg-step{order:10;flex:1 1 100%}}'+
+  '@media (max-width:700px){.mg-al{top:86px;font-size:13px}.mg-sim{top:150px}.mgd{grid-template-columns:54px minmax(0,1fr);gap:11px;padding:20px 12px 16px}.mgd.is-me{grid-template-columns:minmax(0,1fr) 54px}.mgd-face{width:54px;height:54px;border-radius:9px}.mgd-text{font-size:16.5px;min-height:5.8em}.mg .mgd-opt{font-size:15.5px;padding:8px 10px 8px 28px}.mg-hpb{width:64px}.mg-hp span{display:none}}'+
+  '@media (prefers-reduced-motion:reduce){.mg-al,.mgd,.mgd-opt,.mg-mk i,.mg-sim,.mg-ns,.mgs-cv.is-glitch,.mgd-face.is-pop{animation:none!important}}'+
+  '@keyframes mgDrop{0%{transform:translate(-50%,-40px);opacity:0}100%{transform:translate(-50%,0);opacity:1}}'+
+  '@keyframes mgUp{0%{transform:translate(-50%,26px);opacity:0}100%{transform:translate(-50%,0);opacity:1}}@keyframes mgUp2{0%{transform:translateY(10px);opacity:0}100%{transform:none;opacity:1}}'+
+  '@keyframes mgRing{0%{transform:scale(.45);opacity:1}100%{transform:scale(1.5);opacity:0}}@keyframes mgBob{0%,100%{transform:translateY(0)}50%{transform:translateY(4px)}}'+
+  '@keyframes mgPop{0%{transform:scale(.7)}100%{transform:scale(1)}}@keyframes mgHit{0%,100%{transform:none}25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}'+
+  '@keyframes mgNoise{0%{background-position:0 0,0 0}100%{background-position:0 7px,0 0}}'+
+  '@keyframes mgGlitch{0%{filter:hue-rotate(90deg) saturate(3);transform:translate(7px,0)}50%{filter:hue-rotate(-70deg) contrast(1.6);transform:translate(-6px,3px)}100%{filter:none;transform:none}}';
+  document.head.appendChild(st);
+})();
+
 /* ---- acceso desde la portada ---- */
 function mgNavEntry(nav){var b=add(nav,'button','hm-link');b.type='button';b.addEventListener('click',function(){mgOpen();});MG.navB=b;return b;}
 function mgHomeEntry(wrap){
@@ -5534,38 +5937,161 @@ function mgHomeEntry(wrap){
 function mgTexts(){
   if(MG.navB)MG.navB.textContent=mgt('homeK');
   if(MG.entry){MG.entry.k.textContent=mgt('homeK')+' · '+mgt('tag');MG.entry.t.textContent=mgt('homeT');MG.entry.p.textContent=mgt('homeP');MG.entry.b.textContent=mgt('homeB');}
-  if(MG.el&&!MG.el.hidden)mgRender();
+  if(MG.el&&!MG.el.hidden){if(MG.state==='play')mgEvent(true);else mgRender();}
+}
+
+/* ---- retratos: cuatro analistas para elegir y la directora de vuelo (el quinto) ---- */
+var MG_FACES=[{skin:'#e9b990',hair:'#2a1a12',st:0,shirt:'#3b6fd1'},{skin:'#8a5a3c',hair:'#15110f',st:3,shirt:'#d1663b'},{skin:'#f1c9a5',hair:'#b4552a',st:1,shirt:'#3ba36f'},{skin:'#c68e62',hair:'#3a2a55',st:2,shirt:'#8a5bd1'},
+  {skin:'#d9a37c',hair:'#c9ccd2',st:2,shirt:'#ffd08a'}];
+function mgFace(i,parent){
+  var f=MG_FACES[i]||MG_FACES[0],s=mgSvg('svg',{viewBox:'0 0 96 96','aria-hidden':'true'},parent),k;
+  mgSvg('rect',{x:0,y:0,width:96,height:96,fill:i===4?'#1a1608':'#101722'},s);
+  if(f.st===1)mgSvg('path',{d:'M24 70V38c0-16 11-24 24-24s24 8 24 24v32z',fill:f.hair},s);
+  mgSvg('path',{d:'M10 98c2-24 20-32 38-32s36 8 38 32z',fill:f.shirt},s);mgSvg('rect',{x:42,y:54,width:12,height:14,rx:5,fill:f.skin},s);
+  mgSvg('circle',{cx:48,cy:40,r:19,fill:f.skin},s);
+  if(f.st===3){for(k=0;k<9;k++)mgSvg('circle',{cx:48+Math.cos(Math.PI+k*Math.PI/8)*20,cy:36+Math.sin(Math.PI+k*Math.PI/8)*17,r:8.5,fill:f.hair},s);}
+  else mgSvg('path',{d:'M28 40c-1-17 9-25 20-25s21 8 20 25c-4-9-10-13-20-13s-16 4-20 13z',fill:f.hair},s);
+  if(f.st===2)mgSvg('circle',{cx:48,cy:13,r:7.5,fill:f.hair},s);
+  mgSvg('circle',{cx:40.5,cy:42,r:2.2,fill:'#1a1305'},s);mgSvg('circle',{cx:55.5,cy:42,r:2.2,fill:'#1a1305'},s);
+  mgSvg('path',{d:'M41 50q7 6 14 0',fill:'none',stroke:'#1a1305','stroke-width':2,'stroke-linecap':'round'},s);
+  /* auriculares con micrófono */
+  mgSvg('path',{d:'M27 42a21 21 0 0 1 42 0',fill:'none',stroke:'#cfd6e0','stroke-width':3},s);mgSvg('rect',{x:23,y:37,width:7,height:13,rx:3.5,fill:'#cfd6e0'},s);mgSvg('rect',{x:66,y:37,width:7,height:13,rx:3.5,fill:'#cfd6e0'},s);
+  mgSvg('path',{d:'M27 49q2 11 13 9',fill:'none',stroke:'#cfd6e0','stroke-width':2,'stroke-linecap':'round'},s);mgSvg('circle',{cx:41,cy:57.5,r:2.4,fill:i===4?'#ff6b5a':'#ffd08a'},s);
+  return s;
 }
 
 /* ---- abrir y cerrar ---- */
 function mgOpen(){
-  if(!MG.el){MG.el=add(stage,'div','mg');MG.el.hidden=true;MG.el.addEventListener('pointerdown',function(e){e.stopPropagation();});
+  if(!MG.el){
+    MG.el=add(stage,'div','mg');MG.el.hidden=true;MG.el.addEventListener('pointerdown',function(e){e.stopPropagation();});
     MG.el.addEventListener('wheel',function(e){e.stopPropagation();},{passive:true});
-    document.addEventListener('keydown',function(e){if(MG.el&&!MG.el.hidden&&e.key==='Escape'){e.stopImmediatePropagation();mgClose();}},true);}
+    document.addEventListener('keydown',function(e){if(!MG.el||MG.el.hidden)return;
+      if(e.key==='Escape'){e.stopImmediatePropagation();mgClose();return;}
+      if(MG.state!=='play')return;var tag=e.target&&e.target.tagName;
+      if((e.key==='Enter'||e.key===' ')&&tag!=='BUTTON'){e.preventDefault();e.stopImmediatePropagation();mgAdvance();}
+      else if(MG.sub==='ask'&&/^[123]$/.test(e.key)){e.stopImmediatePropagation();mgChoose(+e.key-1);}},true);
+    try{mgsOpen(MG.el);MGS.hooks={flash:mgFlash,signal:function(on){if(MG.ui)MG.ui.ns.hidden=!on;},glitch:function(on){MGS.cv.classList.toggle('is-glitch',!!on);}};}catch(err){}
+    mgBuild();
+  }
   if(typeof homeHide==='function')homeHide();
-  MG.state='pick';MG.m=null;MG.el.hidden=false;mgRender();MG.el.scrollTop=0;
+  MG.state='char';MG.m=null;MG.el.hidden=false;mgRender();MG.scr.scrollTop=0;
 }
 function mgClose(openId){
-  clearTimeout(MG.timer);if(MG.el)MG.el.hidden=true;
+  MG.run++;MG.type=null;MG.cd=null;MG.clock=0;if(typeof MGS!=='undefined')mgsClose();if(MG.el)MG.el.hidden=true;
   if(typeof homeShow==='function')homeShow();
   if(openId&&typeof openMission==='function'){var m=allMissions().filter(function(x){return x.id===openId;})[0];if(m)openMission(m);}
 }
+/* lo que no se vuelve a armar: la pantalla de juego (barra de arriba, alerta, marca, diálogo) y la capa de las demás pantallas */
+function mgBuild(){
+  var u=MG.ui={},el=u.el=add(MG.el,'div','mg-ui');el.hidden=true;
+  u.fl=add(el,'div','mg-fl');u.ns=add(el,'div','mg-ns');u.ns.hidden=true;u.nsT=add(u.ns,'span','');
+  u.mk=add(el,'div','mg-mk');u.mk.hidden=true;add(u.mk,'i','');add(u.mk,'i','');u.mkT=add(u.mk,'span','');
+  u.hud=add(el,'div','mg-hud');
+  u.al=add(el,'p','mg-al');u.al.hidden=true;add(u.al,'i','dot').setAttribute('aria-hidden','true');u.alL=add(u.al,'span','lv');u.alT=add(u.al,'span','');u.alC=add(u.al,'b','cd');u.alB=add(u.al,'i','bar');
+  u.sim=add(el,'p','mg-sim');u.sim.hidden=true;
+  var d=u.d=add(el,'div','mgd');u.face=add(d,'div','mgd-face');var mn=add(d,'div','');u.who=add(d,'span','mgd-who');u.text=add(mn,'p','mgd-text');u.text.setAttribute('aria-hidden','true');
+  u.live=add(mn,'p','mg-live');u.live.setAttribute('aria-live','polite');u.opts=add(mn,'div','mgd-opts');u.opts.hidden=true;u.more=add(d,'span','mgd-more');u.more.textContent='▼';u.more.hidden=true;
+  d.addEventListener('click',function(e){if(e.target&&e.target.closest&&e.target.closest('.mgd-opt'))return;mgAdvance();});
+  u.fade=add(MG.el,'div','mg-fade');MG.scr=add(MG.el,'div','mg-scr');
+}
+function mgFlash(col,k){var f=MG.ui&&MG.ui.fl;if(!f||reduce)return;f.style.transition='none';f.style.backgroundColor=col;f.style.opacity=String(k);void f.offsetWidth;f.style.transition='opacity .7s ease-out';f.style.opacity='0';}
+function mgFade(fn){var f=MG.ui.fade,run=MG.run;f.classList.add('is-on');setTimeout(function(){if(run!==MG.run)return;fn();setTimeout(function(){f.classList.remove('is-on');},60);},reduce?0:360);}
+
+/* ---- la partida ---- */
 function mgStart(id){
   var D=mgData();MG.m=D.missions.filter(function(q){return q.id===id;})[0];if(!MG.m)return;
   MG.evs=D.events.filter(function(e){return e.for.indexOf(id)>=0;}).sort(function(a,b){return MG_PHASES.indexOf(a.phase)-MG_PHASES.indexOf(b.phase);});
-  MG.i=0;MG.first=0;MG.health=100;MG.fixed={};mgEvent();
+  MG.i=0;MG.first=0;MG.health=100;MG.fixed={};MG.state='play';MG.run++;
+  try{mgsSetup(id);mgsGo(MG.evs[0].phase);MGS.on=true;}catch(e){}
+  mgRender();MG.ui.fade.classList.add('is-on');MG.wrong={};mgEvent(false,true);
 }
-function mgEvent(){
-  MG.wrong={};MG.last=-1;MG.state='calm';mgRender();MG.el.scrollTop=0;
-  clearTimeout(MG.timer);MG.timer=setTimeout(function(){if(MG.state==='calm'){MG.state='alert';mgRender();}},reduce?200:1100);
+function mgName(){return mgTx(MG.m.name);}
+function mgHud(){
+  var u=MG.ui,ev=MG.evs[MG.i],top=u.hud;top.innerHTML='';var bar=add(top,'header','mg-top');add(bar,'span','mg-tag').textContent=mgt('tag');
+  add(bar,'span','mg-name').textContent=mgName();add(bar,'span','mg-kind').textContent=mgTx(MG.m.kind);
+  add(bar,'span','mg-step').textContent=mgt('phase')[ev.phase]+' · '+mgt('stepOf').replace('{i}',MG.i+1).replace('{t}',MG.evs.length);add(bar,'span','mg-sp');
+  var hp=u.hp=add(bar,'div','mg-hp');add(hp,'span','').textContent=mgt('health');var hb=add(hp,'div','mg-hpb');u.hpI=add(hb,'i','');u.hpV=add(hp,'b','');
+  hb.setAttribute('role','progressbar');hb.setAttribute('aria-valuemin','0');hb.setAttribute('aria-valuemax','100');hb.setAttribute('aria-label',mgt('health'));
+  mgLangX(bar);mgHealth();u.sim.textContent=mgt('sim');u.nsT.textContent=mgt('noSignal');
+}
+function mgHealth(hit){var u=MG.ui;if(!u.hpI)return;u.hpI.style.width=MG.health+'%';u.hpI.style.backgroundColor=MG.health>=80?'#7fd49a':(MG.health>=60?'#ffd08a':'#ff9d6e');u.hpV.textContent=MG.health+' %';
+  u.hpI.parentNode.setAttribute('aria-valuenow',String(MG.health));if(hit){u.hp.classList.remove('is-hit');void u.hp.offsetWidth;u.hp.classList.add('is-hit');}}
+function mgLangX(top){
+  ['es','en'].forEach(function(c){var b=add(top,'button','mg-lg');b.type='button';b.textContent=c.toUpperCase();b.setAttribute('aria-pressed',String(lang===c));b.setAttribute('lang',c);
+    b.addEventListener('click',function(){var q=$(c==='en'?'#langEn':'#langEs');if(q)q.click();});});
+  var x=add(top,'button','mg-x');x.type='button';x.textContent='×';x.setAttribute('aria-label',mgt('close'));x.addEventListener('click',function(){mgClose();});
+}
+/* la alerta de arriba y la marca sobre la pieza: amarilla, roja o, ya resuelta, verde */
+function mgAlertUI(ev,ok){
+  var u=MG.ui;if(!ev){u.al.hidden=true;u.mk.hidden=true;return;}
+  var red=!!MG_RED[ev.key],cls=ok?' is-ok':(red?' is-red':'');u.al.className='mg-al'+cls;u.al.setAttribute('role',ok?'status':'alert');
+  u.alL.textContent=ok?mgt('fixed'):(red?mgt('crit'):mgt('warn'));u.alT.textContent=mgTx(ev.alert,mgName()).replace(/^[^:]{3,12}:\s*/,'');u.alC.hidden=true;u.alB.hidden=true;
+  if(u.al.hidden){u.al.hidden=false;u.al.style.animation='none';void u.al.offsetWidth;u.al.style.animation='';}
+  u.mk.className='mg-mk'+cls;u.mkT.textContent=mgt('sys')[ev.sys]||'';
+}
+/* una línea de la conversación. mode: wait (espera un clic o Enter), auto (sigue sola), hold (queda escrita y sigue sin esperar) */
+function mgSay(who,text,mode,next,pause){
+  var u=MG.ui,me=who==='me',cls='mgd'+(me?' is-me':'');if(u.d.className.replace(' is-ask','')!==cls||me!==u.wasMe){u.wasMe=me;u.d.className=cls;u.face.innerHTML='';mgFace(me?MG.me:4,u.face);u.face.classList.remove('is-pop');void u.face.offsetWidth;u.face.classList.add('is-pop');}
+  if(!u.face.firstChild)mgFace(me?MG.me:4,u.face);
+  u.d.classList.remove('is-ask');u.who.textContent=me?mgWho()+' · '+mgt('charK'):mgt('npc');u.opts.hidden=true;u.opts.innerHTML='';u.more.hidden=true;u.text.textContent='';u.live.textContent=text;
+  MG.type={s:text,n:0,done:false,mode:mode,next:next,wait:0,pause:pause==null?1.3:pause};
+}
+function mgAdvance(){var T=MG.type;if(!T||MG.state!=='play')return;if(!T.done){T.n=1e9;return;}if(T.mode!=='hold'){MG.type=null;T.next();}}
+function mgTick(dt,now){
+  /* reloj propio: el de la página frena el tiempo cuando hay pocos cuadros por segundo, y acá corre una cuenta regresiva */
+  var rt=performance.now();dt=MG.clock?Math.min(0.25,(rt-MG.clock)/1000):dt;MG.clock=rt;
+  if(typeof MGS!=='undefined'&&MGS.on)try{mgsTick(dt,now);}catch(e){if(!MG.err){MG.err=e;if(window.console)console.error(e);}}
+  if(MG.state!=='play'||!MG.ui)return;var u=MG.ui,T=MG.type,mk=MGS.mark;
+  if(T){
+    if(!T.done){T.n+=dt*(reduce?1e9:52);if(T.n>=T.s.length){T.done=true;u.text.textContent=T.s;if(T.mode==='wait')u.more.hidden=false;if(T.mode==='hold'){MG.type=null;T.next();}}
+      else u.text.textContent=T.s.slice(0,Math.floor(T.n));}
+    else if(T.mode==='auto'){T.wait+=dt;if(T.wait>=T.pause){MG.type=null;T.next();}}
+  }
+  var on=mk.vis&&!u.al.hidden;u.mk.hidden=!on;if(on)u.mk.style.transform='translate('+mk.x.toFixed(1)+'px,'+mk.y.toFixed(1)+'px)';
+  /* cuenta regresiva de las alertas rojas */
+  var C=MG.cd;if(C){C.t-=dt;var s=Math.max(0,Math.ceil(C.t));if(s!==C.s){C.s=s;u.alC.textContent=String(s);u.al.classList.toggle('is-hot',s<=10);}
+    u.alB.style.transform='scaleX('+clamp(C.t/MG_SECS,0,1).toFixed(3)+')';if(C.t<=0)mgTimeUp();}
+}
+function mgTimer(on){var u=MG.ui;if(!on){MG.cd=null;u.alC.hidden=true;u.alB.hidden=true;u.al.classList.remove('is-hot');return;}
+  MG.cd={t:MG_SECS,s:-1};u.alC.hidden=false;u.alB.hidden=false;u.alC.setAttribute('aria-label',mgt('secs'));}
+function mgTimeUp(){
+  var run=MG.run;mgTimer(false);MG.sub='busy';MG.wrong.t=true;MG.health=Math.max(40,MG.health-8);mgHealth(true);mgFlash('#ff6b5a',0.35);
+  mgSay('npc',mgt('timeUp'),'auto',function(){if(run===MG.run)mgAsk(run);},0.9);
+}
+function mgEvent(keep,first){
+  var ev=MG.evs[MG.i],name=mgName(),run=++MG.run,u=MG.ui;if(!keep)MG.wrong={};MG.last=-1;MG.sub='calm';mgTimer(false);mgAlertUI(null);u.sim.hidden=true;u.ns.hidden=true;
+  var go=function(){
+    try{mgsGo(ev.phase);}catch(e){}mgHud();
+    var hi=first?mgt('hello').replace('{name}',function(){return name;}).replace('{who}',function(){return mgWho();})+'\n':'';
+    mgSay('npc',hi+mgTx(ev.day)+'. '+mgt('calm'),first?'wait':'auto',function(){if(run!==MG.run)return;
+      MG.sub='alert';try{mgsAlert(ev.key,ev.sys);}catch(e){}mgAlertUI(ev);mgFlash(MG_RED[ev.key]?'#ff6b5a':'#ffd08a',0.28);
+      mgSay('npc',mgTx(ev.story,name),'wait',function(){if(run===MG.run)mgAsk(run);});},1.2);
+  };
+  mgFade(go);
+}
+function mgAsk(run){
+  var ev=MG.evs[MG.i],name=mgName(),u=MG.ui,tail=MG.last>=0&&!ev.options[MG.last].ok?mgt('tryAgain')+' ':'';
+  mgSay('npc',tail+mgTx(ev.ask,name),'hold',function(){if(run!==MG.run)return;MG.sub='ask';u.opts.innerHTML='';u.opts.hidden=false;u.d.classList.add('is-ask');var first=null;
+    ev.options.forEach(function(o,k){var b=add(u.opts,'button','mgd-opt');b.type='button';b.textContent=mgTx(o.t,name);b.disabled=!!MG.wrong[k];if(!b.disabled&&!first)first=b;b.addEventListener('click',function(){mgChoose(k);});});
+    if(MG_RED[ev.key])mgTimer(true);});
 }
 function mgChoose(k){
-  var ev=MG.evs[MG.i],o=ev&&ev.options[k];if(!o||MG.state!=='alert')return;MG.last=k;
-  if(o.ok){if(!Object.keys(MG.wrong).length)MG.first++;MG.fixed[ev.sys]=Object.keys(MG.wrong).length?'fixed':'ok';MG.state='solved';}
-  else{MG.wrong[k]=true;MG.health=Math.max(40,MG.health-8);}
-  mgRender();
+  var ev=MG.evs[MG.i],o=ev&&ev.options[k],name=mgName(),run=MG.run,u=MG.ui;if(!o||MG.sub!=='ask'||MG.wrong[k])return;MG.sub='busy';MG.last=k;mgTimer(false);
+  mgSay('me',mgTx(o.t,name),'auto',function(){if(run!==MG.run)return;
+    if(o.ok){
+      if(!Object.keys(MG.wrong).length)MG.first++;MG.fixed[ev.sys]=Object.keys(MG.wrong).length?'fixed':'ok';
+      mgAlertUI(ev,true);mgFlash('#7fd49a',0.22);try{mgsFix(ev.key,null);}catch(e){}
+      mgSay('npc',mgt('rightK')+' '+mgTx(o.result,name),'wait',function(){if(run!==MG.run)return;
+        mgSay('npc',mgt('whyK')+': '+mgTx(ev.why,name),'wait',function(){if(run!==MG.run)return;var rm=mgReal(ev);
+          if(rm)mgSay('npc',mgt('realK')+' · '+rm.m.name+': «'+rm.text+'»','wait',function(){if(run===MG.run)mgNext();});else mgNext();});});
+    }else{
+      MG.wrong[k]=true;MG.health=Math.max(40,MG.health-8);mgHealth(true);u.sim.hidden=false;try{mgsFault(ev.key,k,null);}catch(e){}
+      mgSay('npc',mgt('wrongK')+' '+mgTx(o.result,name),'wait',function(){if(run!==MG.run)return;
+        /* se rebobina la simulación y la alerta sigue esperando una respuesta */
+        mgFade(function(){u.sim.hidden=true;try{mgsAlert(ev.key,ev.sys);MGS.mt=5;}catch(e){}mgAsk(run);});});
+    }},0.7);
 }
-function mgNext(){if(MG.i<MG.evs.length-1){MG.i++;mgEvent();}else{MG.state='done';mgRender();MG.el.scrollTop=0;}}
+function mgNext(){if(MG.i<MG.evs.length-1){MG.i++;mgEvent();}else{MG.run++;MG.type=null;MG.state='done';mgRender();MG.scr.scrollTop=0;}}
 
 /* ---- dibujo ---- */
 function mgSvg(tag,at,p){var e=document.createElementNS('http://www.w3.org/2000/svg',tag);for(var k in at)e.setAttribute(k,String(at[k]));if(p)p.appendChild(e);return e;}
@@ -5591,16 +6117,29 @@ function mgTrack(id,n,i,alert,done){
 }
 function mgTop(){
   var top=add(MG.body,'header','mg-top');add(top,'span','mg-tag').textContent=mgt('tag');
-  if(MG.m&&MG.state!=='pick'){add(top,'span','mg-name').textContent=mgTx(MG.m.name);add(top,'span','mg-kind').textContent=mgTx(MG.m.kind);}
-  add(top,'span','mg-sp');
-  ['es','en'].forEach(function(c){var b=add(top,'button','mg-lg');b.type='button';b.textContent=c.toUpperCase();b.setAttribute('aria-pressed',String(lang===c));b.setAttribute('lang',c);
-    b.addEventListener('click',function(){var q=$(c==='en'?'#langEn':'#langEs');if(q)q.click();});});
-  var x=add(top,'button','mg-x');x.type='button';x.textContent='×';x.setAttribute('aria-label',mgt('close'));x.addEventListener('click',function(){mgClose();});
+  if(MG.m&&MG.state==='done'){add(top,'span','mg-name').textContent=mgName();add(top,'span','mg-kind').textContent=mgTx(MG.m.kind);}
+  add(top,'span','mg-sp');mgLangX(top);
 }
 function mgRender(){
-  if(!MG.el)return;var keep=MG.el.scrollTop;MG.el.innerHTML='';MG.el.setAttribute('lang',lang);MG.body=add(MG.el,'div','mg-wrap');mgTop();
-  if(MG.state==='pick')mgPick();else if(MG.state==='done')mgDone();else mgPlay();
-  MG.el.scrollTop=keep;
+  if(!MG.el)return;var play=MG.state==='play',done=MG.state==='done',on3d=play||done;MG.el.setAttribute('lang',lang);
+  MG.ui.el.hidden=!play;MG.scr.hidden=play;MG.scr.className='mg-scr'+(done?' is-over':'');if(typeof MGS!=='undefined'&&MGS.cv){MGS.cv.hidden=!on3d;MGS.on=on3d;}
+  if(play){mgHud();return;}
+  var keep=MG.scr.scrollTop;MG.scr.innerHTML='';MG.body=add(MG.scr,'div','mg-wrap');mgTop();
+  if(MG.state==='char')mgChar();else if(done)mgDone();else mgPick();
+  MG.scr.scrollTop=keep;
+}
+function mgChar(){
+  var b=MG.body;add(b,'h1','mg-h1').textContent=mgt('charH');add(b,'p','mg-lead').textContent=mgt('charP');
+  var f=add(b,'form','mg-nm'),lb=add(f,'label','mg-k'),inp=add(f,'input','');lb.textContent=mgt('nameL');lb.setAttribute('for','mgName');inp.id='mgName';inp.type='text';inp.maxLength=16;
+  inp.autocomplete='off';inp.setAttribute('autocapitalize','words');inp.spellcheck=false;inp.value=MG.name||'';inp.placeholder=mgt('who')[MG.me];
+  /* las teclas del campo no llegan a los atajos de la página */
+  inp.addEventListener('keydown',function(e){e.stopPropagation();});inp.addEventListener('input',function(){MG.name=mgClean(inp.value);if(inp.value!==MG.name)inp.value=MG.name;});
+  add(b,'p','mg-k').textContent=mgt('faceL');var g=add(b,'div','mg-chars'),cards=[];g.setAttribute('role','group');g.setAttribute('aria-label',mgt('faceL'));
+  [0,1,2,3].forEach(function(i){var c=add(g,'button','mg-char');c.type='button';c.setAttribute('aria-pressed',String(MG.me===i));mgFace(i,c);add(c,'b','').textContent=mgt('who')[i];cards.push(c);
+    c.addEventListener('click',function(){MG.me=i;cards.forEach(function(q,k){q.setAttribute('aria-pressed',String(k===i));});inp.placeholder=mgt('who')[i];});});
+  var go=add(b,'button','mg-btn');go.type='button';go.textContent=mgt('go');
+  var done=function(e){if(e)e.preventDefault();MG.name=mgClean(inp.value).trim();try{localStorage.setItem('mgFace',String(MG.me));localStorage.setItem('mgName',MG.name);}catch(err){}MG.state='pick';mgRender();MG.scr.scrollTop=0;};
+  go.addEventListener('click',done);f.addEventListener('submit',done);
 }
 function mgPick(){
   var b=MG.body;add(b,'h1','mg-h1').textContent=mgt('pickH');add(b,'p','mg-lead').textContent=mgt('pickP');
@@ -5610,37 +6149,7 @@ function mgPick(){
     mgSvg('path',{d:'M76 66Q150 6 204 46',fill:'none',stroke:'rgba(232,238,248,.4)','stroke-width':1.5,'stroke-dasharray':'3 6'},svg);mgSvg('circle',{cx:150,cy:33,r:4,fill:'#ffd08a'},svg);
     add(c,'span','mg-ck').textContent=mgTx(m.kind);add(c,'span','mg-cn').textContent=mgTx(m.name);add(c,'span','mg-cg').textContent=mgTx(m.goal);
     add(c,'span','mg-go').textContent=mgt('start');c.addEventListener('click',function(){mgStart(m.id);});});
-}
-function mgPlay(){
-  var ev=MG.evs[MG.i],name=mgTx(MG.m.name),alert=MG.state==='alert',solved=MG.state==='solved',wrongN=Object.keys(MG.wrong).length;
-  var play=add(MG.body,'div','mg-play'),side=add(play,'div','mg-side'),main=add(play,'section','mg-box mg-main');
-  /* costado: camino, etapas, sistemas y estado */
-  var b1=add(side,'div','mg-box');b1.appendChild(mgTrack(MG.m.id,MG.evs.length,MG.i+(solved?1:0),alert,false));
-  var rail=add(b1,'div','mg-rail'),cur=MG_PHASES.indexOf(ev.phase);
-  MG_PHASES.forEach(function(ph,k){if(!MG.evs.some(function(e){return e.phase===ph;}))return;var s=add(rail,'span','mg-ph'+(k<cur?' is-done':(k===cur?' is-on':'')));s.textContent=mgt('phase')[ph];});
-  var b2=add(side,'div','mg-box');add(b2,'p','mg-k').textContent=mgt('systems');var sy=add(b2,'div','mg-sys'),seen={};
-  MG.evs.forEach(function(e){if(seen[e.sys])return;seen[e.sys]=1;var fault=e.sys===ev.sys&&alert;
-    var c=add(sy,'div','mg-chip'+(fault?' is-fault':(MG.fixed[e.sys]==='fixed'?' is-fixed':'')));add(c,'span','').textContent=mgt('sys')[e.sys];
-    add(c,'b','').textContent=fault?mgt('fault'):(MG.fixed[e.sys]==='fixed'?mgt('fixed'):mgt('ok'));});
-  var b3=add(side,'div','mg-box'),hv=add(b3,'div','mg-hv');add(hv,'span','mg-k').textContent=mgt('health');add(hv,'b','').textContent=MG.health+' %';
-  var bar=add(b3,'div','mg-bar'),fill=add(bar,'i','');fill.style.width=MG.health+'%';fill.style.backgroundColor=MG.health>=80?'#7fd49a':(MG.health>=60?'#ffd08a':'#ff9d6e');
-  bar.setAttribute('role','progressbar');bar.setAttribute('aria-valuemin','0');bar.setAttribute('aria-valuemax','100');bar.setAttribute('aria-valuenow',String(MG.health));bar.setAttribute('aria-label',mgt('health'));
-  /* panel principal */
-  add(main,'p','mg-day').textContent=mgTx(ev.day)+' · '+mgt('stepOf').replace('{i}',MG.i+1).replace('{t}',MG.evs.length);
-  if(MG.state==='calm'){add(main,'p','mg-calm').textContent=mgt('calm');return;}
-  var al=add(main,'p','mg-alert'+(solved?' is-ok':''));al.setAttribute('role',solved?'status':'alert');add(al,'i','').setAttribute('aria-hidden','true');add(al,'span','').textContent=mgTx(ev.alert,name);
-  add(main,'p','mg-story').textContent=mgTx(ev.story,name);add(main,'h2','mg-ask').textContent=mgTx(ev.ask,name);
-  var ops=add(main,'div','mg-opts'),first=null;
-  ev.options.forEach(function(o,k){var b=add(ops,'button','mg-opt'+(MG.wrong[k]?' is-wrong':((solved&&o.ok)?' is-right':'')));b.type='button';b.textContent=mgTx(o.t,name);
-    b.disabled=solved||!!MG.wrong[k];if(!b.disabled&&!first)first=b;b.addEventListener('click',function(){mgChoose(k);});});
-  if(MG.last>=0){var o=ev.options[MG.last],r=add(main,'p','mg-res'+(o.ok?' is-right':''));r.setAttribute('aria-live','polite');
-    add(r,'b','').textContent=o.ok?mgt('rightK'):mgt('wrongK');r.appendChild(document.createTextNode(mgTx(o.result,name)+(o.ok?'':' '+mgt('tryAgain'))));}
-  if(solved){
-    var w=add(main,'p','mg-why');add(w,'b','').textContent=mgt('whyK')+': ';w.appendChild(document.createTextNode(mgTx(ev.why,name)));
-    var rm=mgReal(ev);if(rm){var rr=add(main,'p','mg-real');add(rr,'b','').textContent=mgt('realK')+' · '+rm.m.name;rr.appendChild(document.createTextNode(rm.text));}
-    var nx=add(main,'button','mg-btn');nx.type='button';nx.textContent=MG.i<MG.evs.length-1?mgt('next'):mgt('finish');nx.addEventListener('click',mgNext);
-    try{nx.focus({preventScroll:true});}catch(e){}
-  }else if(first&&wrongN===0){try{first.focus({preventScroll:true});}catch(e2){}}
+  var ch=add(b,'button','mg-link');ch.type='button';ch.textContent=mgt('change');ch.addEventListener('click',function(){MG.state='char';mgRender();});
 }
 /* la máquina real con la que se relaciona un evento, y su frase (una que ya está en el sitio) */
 function mgReal(ev){
@@ -5648,7 +6157,7 @@ function mgReal(ev){
   return {m:m,text:ev.real[lang]||ev.real.en};
 }
 function mgDone(){
-  var b=MG.body,name=mgTx(MG.m.name);add(b,'h1','mg-h1').textContent=mgt('doneH');
+  var b=MG.body,name=mgName();add(b,'h1','mg-h1').textContent=mgt('doneH');
   var bx=add(b,'div','mg-box');bx.appendChild(mgTrack(MG.m.id,MG.evs.length,MG.evs.length,false,true));
   add(b,'p','mg-lead').textContent=mgt('doneP').replace('{name}',name);
   add(b,'p','mg-score').textContent=mgt('score').replace('{n}',MG.first).replace('{t}',MG.evs.length)+' '+mgt('health')+': '+MG.health+' %.';
@@ -5656,7 +6165,7 @@ function mgDone(){
   if(list.length){add(b,'h2','mg-k').textContent=mgt('realH');var ul=add(b,'ul','mg-list');
     list.forEach(function(r){var li=add(ul,'li','');add(li,'b','').textContent=r.m.name;add(li,'span','').textContent=r.text;
       var go=add(li,'button','mg-btn is-line');go.type='button';go.textContent=mgt('open');go.addEventListener('click',function(){mgClose(r.m.id);});});}
-  var row=add(b,'div','mg-row'),a=add(row,'button','mg-btn');a.type='button';a.textContent=mgt('again');a.addEventListener('click',function(){MG.state='pick';MG.m=null;mgRender();MG.el.scrollTop=0;});
+  var row=add(b,'div','mg-row'),a=add(row,'button','mg-btn');a.type='button';a.textContent=mgt('again');a.addEventListener('click',function(){MG.state='pick';MG.m=null;mgRender();MG.scr.scrollTop=0;});
   var h=add(row,'button','mg-btn is-line');h.type='button';h.textContent=mgt('back');h.addEventListener('click',function(){mgClose();});
 }
 /* el cambio de idioma lo hace la página; acá solo se vuelven a escribir los textos */
@@ -5726,7 +6235,7 @@ var HOME=HOME||{};HOME.active=false;
 var hmApi=(function(){
   var SVG_NS='http://www.w3.org/2000/svg';
   var STR={
-    es:{brand:'Siguen ahí',navAria:'Portada',visited:'Visitaste {n} de {t}',map:'Ver el mapa 3D',credits:'Créditos',
+    es:{brand:'Siguen ahí',navAria:'Portada',visited:'Visitaste {n} de {t}',map:'Ver el mapa',credits:'Créditos',
         eye:'NASA Space Apps 2026 · Salta',h1a:'Siguen ahí:',h1b:'las misiones de NASA a través del tiempo',
         lead:'Catorce máquinas que quedaron en la Luna, en Marte y más lejos. Elegí una para seguir su misión, desde el despegue hasta donde está hoy.',
         sort:'Ordenar',byPlace:'Por lugar',byYear:'Por año',machines:'Máquinas',visitedWord:'visitada',art:'Ilustración',
@@ -5736,7 +6245,7 @@ var hmApi=(function(){
         rkH:'Los cohetes que las llevaron',rkP:'En orden, del primer despegue al último. Todos están a la misma escala y son los mismos modelos 3D que se ven en cada lanzamiento.',
         tall:'{n} m de alto',carried:'Llevó a',
         foot:'Las frases en primera persona están escritas para este sitio a partir de datos de NASA: no son citas reales. Fotos: NASA Image and Video Library. Fechas: NSSDCA y páginas de misión de NASA.'},
-    en:{brand:'Still There',navAria:'Start page',visited:'Visited {n} of {t}',map:'Open the 3D map',credits:'Credits',
+    en:{brand:'Still There',navAria:'Start page',visited:'Visited {n} of {t}',map:'Open map',credits:'Credits',
         eye:'NASA Space Apps 2026 · Salta',h1a:'Still There:',h1b:'NASA\'s missions across time',
         lead:'Fourteen machines left on the Moon, on Mars and beyond. Pick one to follow its mission, from the launch to where it is today.',
         sort:'Sort',byPlace:'By place',byYear:'By year',machines:'Machines',visitedWord:'visited',art:'Artwork',
@@ -5775,9 +6284,11 @@ var hmApi=(function(){
 '.hm-brand{display:flex;align-items:center;gap:10px;min-height:44px;font-weight:600;font-size:15px;white-space:nowrap}'+
 '.hm-bd{width:8px;height:8px;border-radius:50%;flex:none;background:var(--accent)}'+
 '.hm-nav{display:flex;align-items:center;gap:4px 18px;flex-wrap:wrap;font-size:13px;color:#a7b0bd}'+
-'.hm-count{white-space:nowrap;font-variant-numeric:tabular-nums}'+
-'.hm-map{min-height:44px;padding:0 16px;font-size:13px;font-weight:500;white-space:nowrap;background:none;border:1px solid rgba(232,238,248,.34);border-radius:999px}'+
+'.hm-count{white-space:nowrap;font-variant-numeric:tabular-nums;font-size:17px;font-weight:600;color:var(--fg)}'+
+'.hm-map{min-height:48px;padding:0 24px;font-size:16px;font-weight:600;white-space:nowrap;background:none;border:1px solid rgba(232,238,248,.34);border-radius:999px}'+
 '.hm-map:hover{border-color:var(--accent);color:var(--accent)}.home .hm-map:focus-visible{border-radius:999px}'+
+'.hm-map.hm-play{background:var(--accent);border-color:var(--accent);color:#1a1305}.hm-map.hm-play:hover{background:#ffe2b5;border-color:#ffe2b5;color:#1a1305}'+
+'.hm-credb{align-self:flex-start}'+
 '.hm-link{min-height:44px;padding:0 2px;font-size:13px;white-space:nowrap;background:none;border:0;text-decoration:underline;text-underline-offset:3px}'+
 '.hm-link:hover{color:var(--accent)}'+
 '.hm-lang{display:flex;align-items:center}'+
@@ -5860,7 +6371,7 @@ var hmApi=(function(){
 '.hm-chip:hover{border-color:rgba(232,238,248,.62)}.home .hm-chip:focus-visible{border-radius:999px}'+
 /* pantallas angostas y movimiento reducido */
 '@media (max-width:999px){.hm-swipe{display:block}}'+
-'@media (max-width:640px){.hm-wrap{gap:24px;padding-top:8px}.hm-nav{gap:2px 14px}.hm-lead{font-size:16px}.hm-p{font-size:15px}'+
+'@media (max-width:640px){.hm-wrap{gap:24px;padding-top:8px}.hm-nav{gap:8px 12px}.hm-map{padding:0 18px;font-size:15px}.hm-count{font-size:16px;flex:1 1 100%}.hm-lead{font-size:16px}.hm-p{font-size:15px}'+
 '.hm-sort{flex:1 1 100%}.hm-sb{flex:1 1 0;padding:0 10px}.hm-tl{--hm-nc:148px}.hm-rn{font-size:14px}.hm-worlds{margin-left:0}}'+
 '@media (prefers-reduced-motion:no-preference){.hm-img{transition:transform .35s ease}.hm-card:hover .hm-img{transform:scale(1.04)}}'+
 '@media (prefers-reduced-motion:reduce){.home,.home *{transition:none!important;animation:none!important;scroll-behavior:auto!important}}';
@@ -5904,8 +6415,7 @@ var hmApi=(function(){
     var top=add(wrap,'header','hm-top'),brand=add(top,'div','hm-brand');deco(brand,'span','hm-bd');N.brand=add(brand,'span','');
     N.nav=add(top,'nav','hm-nav');N.count=add(N.nav,'span','hm-count');
     N.map=btn(N.nav,'hm-map');N.map.addEventListener('click',function(){homeHide();if(typeof exBoot==='function')exBoot();});
-    if(typeof mgNavEntry==='function')mgNavEntry(N.nav);
-    N.cred=btn(N.nav,'hm-link');N.cred.addEventListener('click',function(e){if(typeof openCredits==='function')openCredits(e);});
+    if(typeof mgNavEntry==='function')mgNavEntry(N.nav).className='hm-map hm-play';
     var lg=add(N.nav,'div','hm-lang');lg.setAttribute('role','group');lg.setAttribute('aria-label','Idioma / Language');
     N.es=btn(lg,'hm-lg');N.es.textContent='ES';N.es.setAttribute('lang','es');N.es.setAttribute('aria-label','Español');
     deco(lg,'span','hm-lgs');
@@ -5973,6 +6483,8 @@ var hmApi=(function(){
     N.tlNote=add(sec,'p','hm-fine');N.swipe=add(sec,'p','hm-fine hm-swipe');
 
     N.foot=add(wrap,'p','hm-fine');
+    /* los créditos van al final de la portada */
+    N.cred=btn(wrap,'hm-link hm-credb');N.cred.addEventListener('click',function(e){if(typeof openCredits==='function')openCredits(e);});
 
     stage.appendChild(root);
     E=N;CARDS=cards;ROWS=rows;
